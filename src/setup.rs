@@ -327,6 +327,15 @@ fn update_json_config(
 
 /// Configure Claude Code via its CLI.
 fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
+    // Remove existing entry first (ignore errors — it may not exist).
+    for scope in ["user", "local", "project"] {
+        let _ = std::process::Command::new("claude")
+            .args(["mcp", "remove", "scix", "--scope", scope])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
     let status = std::process::Command::new("claude")
         .args([
             "mcp",
