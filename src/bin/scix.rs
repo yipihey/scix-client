@@ -383,13 +383,18 @@ mod cli {
                     permission,
                 } => {
                     client.update_permissions(&id, &email, &permission).await?;
-                    println!("Granted {} access ({}) to library {}", email, permission, id);
+                    println!(
+                        "Granted {} access ({}) to library {}",
+                        email, permission, id
+                    );
                 }
                 LibraryAction::Transfer { id, email } => {
                     client.transfer_library(&id, &email).await?;
                     println!("Transferred library {} to {}", id, email);
                 }
-                LibraryAction::Notes { action: notes_action } => match notes_action {
+                LibraryAction::Notes {
+                    action: notes_action,
+                } => match notes_action {
                     NotesAction::Get {
                         library_id,
                         bibcode,

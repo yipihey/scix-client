@@ -305,17 +305,20 @@ async fn tool_library(client: &SciXClient, args: &Value) -> Result<String, SciXE
             serde_json::to_string_pretty(&perms).map_err(|e| SciXError::Parse(e.to_string()))
         }
         "update_permissions" => {
-            let id = args["id"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'id' required for update_permissions".into()))?;
-            let email = args["email"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'email' required for update_permissions".into()))?;
-            let permission = args["permission"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'permission' required for update_permissions".into()))?;
+            let id = args["id"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'id' required for update_permissions".into())
+            })?;
+            let email = args["email"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'email' required for update_permissions".into())
+            })?;
+            let permission = args["permission"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'permission' required for update_permissions".into())
+            })?;
             client.update_permissions(id, email, permission).await?;
-            Ok(format!("Permissions updated for {} on library {}", email, id))
+            Ok(format!(
+                "Permissions updated for {} on library {}",
+                email, id
+            ))
         }
         "transfer" => {
             let id = args["id"]
@@ -364,26 +367,26 @@ async fn tool_library_documents(client: &SciXClient, args: &Value) -> Result<Str
             Ok(format!("Removed {} documents", bibcodes.len()))
         }
         "get_notes" => {
-            let bibcode = args["bibcode"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'bibcode' required for get_notes".into()))?;
+            let bibcode = args["bibcode"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'bibcode' required for get_notes".into())
+            })?;
             let note = client.get_annotation(library_id, bibcode).await?;
             Ok(note)
         }
         "add_note" | "edit_note" => {
-            let bibcode = args["bibcode"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'bibcode' required for add_note/edit_note".into()))?;
-            let content = args["content"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'content' required for add_note/edit_note".into()))?;
+            let bibcode = args["bibcode"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'bibcode' required for add_note/edit_note".into())
+            })?;
+            let content = args["content"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'content' required for add_note/edit_note".into())
+            })?;
             client.set_annotation(library_id, bibcode, content).await?;
             Ok(format!("Note saved for {}", bibcode))
         }
         "delete_note" => {
-            let bibcode = args["bibcode"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'bibcode' required for delete_note".into()))?;
+            let bibcode = args["bibcode"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'bibcode' required for delete_note".into())
+            })?;
             client.delete_annotation(library_id, bibcode).await?;
             Ok(format!("Note deleted for {}", bibcode))
         }
@@ -399,9 +402,9 @@ async fn tool_library_documents(client: &SciXClient, args: &Value) -> Result<Str
             serde_json::to_string_pretty(&result).map_err(|e| SciXError::Parse(e.to_string()))
         }
         "add_by_query" => {
-            let query = args["query"]
-                .as_str()
-                .ok_or_else(|| SciXError::InvalidQuery("'query' required for add_by_query".into()))?;
+            let query = args["query"].as_str().ok_or_else(|| {
+                SciXError::InvalidQuery("'query' required for add_by_query".into())
+            })?;
             let rows = args["rows"].as_u64().map(|r| r as u32);
             let count = client
                 .add_documents_by_query(library_id, query, rows)
@@ -499,12 +502,24 @@ async fn tool_get_paper(client: &SciXClient, args: &Value) -> Result<String, Sci
 
     let authors_str = if paper.authors.len() > 10 {
         let first_five: Vec<_> = paper.authors[..5].iter().map(|a| a.name.as_str()).collect();
-        format!("{} ... and {} more", first_five.join("; "), paper.authors.len() - 5)
+        format!(
+            "{} ... and {} more",
+            first_five.join("; "),
+            paper.authors.len() - 5
+        )
     } else {
-        paper.authors.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join("; ")
+        paper
+            .authors
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
     };
     out.push_str(&format!("**Authors:** {}\n", authors_str));
-    out.push_str(&format!("**Year:** {}\n", paper.year.map(|y| y.to_string()).unwrap_or_default()));
+    out.push_str(&format!(
+        "**Year:** {}\n",
+        paper.year.map(|y| y.to_string()).unwrap_or_default()
+    ));
 
     if let Some(pub_name) = &paper.publication {
         out.push_str(&format!("**Publication:** {}\n", pub_name));
@@ -523,7 +538,10 @@ async fn tool_get_paper(client: &SciXClient, args: &Value) -> Result<String, Sci
         out.push_str(&format!("**Citations:** {}\n", cites));
     }
     if !paper.properties.is_empty() {
-        out.push_str(&format!("**Properties:** {}\n", paper.properties.join(", ")));
+        out.push_str(&format!(
+            "**Properties:** {}\n",
+            paper.properties.join(", ")
+        ));
     }
 
     if let Some(abstract_text) = &paper.abstract_text {
@@ -578,10 +596,7 @@ fn format_search_results(results: &crate::types::SearchResponse, start: u32) -> 
 
     let shown = start as u64 + results.papers.len() as u64;
     if results.num_found > shown {
-        out.push_str(&format!(
-            "*Use start={} to see more results*\n",
-            shown
-        ));
+        out.push_str(&format!("*Use start={} to see more results*\n", shown));
     }
 
     out

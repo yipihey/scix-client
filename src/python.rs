@@ -421,14 +421,12 @@ impl PySciXClient {
     }
 
     /// Update permissions for a collaborator on a library.
-    fn update_permissions(
-        &self,
-        library_id: &str,
-        email: &str,
-        permission: &str,
-    ) -> PyResult<()> {
+    fn update_permissions(&self, library_id: &str, email: &str, permission: &str) -> PyResult<()> {
         self.runtime
-            .block_on(self.client.update_permissions(library_id, email, permission))
+            .block_on(
+                self.client
+                    .update_permissions(library_id, email, permission),
+            )
             .map_err(to_py_err)
     }
 
@@ -475,7 +473,10 @@ impl PySciXClient {
         let refs_slice: Option<&[&str]> = owned_refs.as_deref();
         let result = self
             .runtime
-            .block_on(self.client.library_operation(library_id, action, refs_slice))
+            .block_on(
+                self.client
+                    .library_operation(library_id, action, refs_slice),
+            )
             .map_err(to_py_err)?;
         json_to_py(py, &result)
     }
