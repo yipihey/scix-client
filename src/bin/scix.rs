@@ -103,6 +103,18 @@ mod cli {
         },
         /// Start MCP server (stdio)
         Serve,
+        /// Set up the SciX MCP server for your AI editor
+        Setup {
+            /// Configure only this editor (default: all detected)
+            #[arg(value_enum)]
+            editor: Option<scix_client::setup::EditorTarget>,
+            /// Don't test the API token
+            #[arg(long)]
+            skip_validation: bool,
+            /// Non-interactive (use env token, configure all detected editors)
+            #[arg(long, short = 'y')]
+            yes: bool,
+        },
     }
 
     #[derive(Subcommand)]
@@ -232,6 +244,17 @@ mod cli {
 
     pub async fn run() -> scix_client::error::Result<()> {
         let cli = Cli::parse();
+
+        // Setup doesn't need a pre-built client.
+        if let Commands::Setup {
+            editor,
+            skip_validation,
+            yes,
+        } = cli.command
+        {
+            return scix_client::setup::run_setup(editor, skip_validation, yes).await;
+        }
+
         let client = make_client(cli.token)?;
 
         match cli.command {
@@ -435,6 +458,8 @@ mod cli {
             Commands::Serve => {
                 scix_client::mcp::run_server(client).await?;
             }
+
+            Commands::Setup { .. } => unreachable!(),
         }
 
         Ok(())

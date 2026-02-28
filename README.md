@@ -39,13 +39,31 @@ cargo install scix-client --features cli
 # or: cargo binstall scix-client
 ```
 
-### Claude Code (one command)
+### Automatic setup (recommended)
+
+```bash
+scix setup
+```
+
+This detects your installed editors (Claude Code, Claude Desktop, Cursor, Zed), prompts for your API token, validates it, and writes the correct config for each one. Run it once and you're done.
+
+Options:
+- `scix setup claude-code` — configure only Claude Code
+- `scix setup --yes` — non-interactive (uses env token, configures all detected editors)
+- `scix setup --skip-validation` — skip token validation
+
+### Manual setup
+
+<details>
+<summary>Claude Code</summary>
 
 ```bash
 claude mcp add scix -- /path/to/scix serve
 ```
+</details>
 
-### Claude Desktop
+<details>
+<summary>Claude Desktop</summary>
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -60,6 +78,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+</details>
 
 See [docs/mcp-server.md](docs/mcp-server.md) for Cursor, Zed, full tool reference, and example workflows.
 

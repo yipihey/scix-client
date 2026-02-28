@@ -34,7 +34,36 @@ You need a SciX/ADS API token (free): <https://ui.adsabs.harvard.edu/user/settin
 export SCIX_API_TOKEN="your-token-here"
 ```
 
-## Setup by Editor
+## Automatic Setup (Recommended)
+
+The easiest way to configure your editors is with the setup wizard:
+
+```bash
+scix setup
+```
+
+This will:
+1. Find or prompt for your API token
+2. Validate the token against the SciX API
+3. Detect which editors you have installed
+4. Write the correct MCP config for each one
+
+Options:
+```
+scix setup                     # Full interactive wizard
+scix setup claude-code         # Configure only Claude Code
+scix setup claude-desktop      # Configure only Claude Desktop
+scix setup cursor              # Configure only Cursor
+scix setup zed                 # Configure only Zed
+
+Flags:
+  --skip-validation   Don't test the API token
+  -y, --yes           Non-interactive (use env token, configure all detected editors)
+```
+
+## Manual Setup by Editor
+
+If you prefer to configure editors manually:
 
 ### Claude Code (CLI)
 
