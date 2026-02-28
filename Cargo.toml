@@ -1,0 +1,38 @@
+[package]
+name = "scix-client"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust client for the SciX (NASA ADS) API — library, CLI, and MCP server"
+keywords = ["scix", "ads", "nasa", "astronomy", "bibliography"]
+categories = ["api-bindings", "science"]
+repository = "https://github.com/yipihey/scix-client"
+
+[features]
+default = []
+cli = ["dep:clap", "dep:comfy-table"]
+python = ["dep:pyo3", "dep:pythonize"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1.0"
+url = "2"
+
+# CLI (optional)
+clap = { version = "4", features = ["derive"], optional = true }
+comfy-table = { version = "7", optional = true }
+
+# Python bindings (optional)
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pythonize = { version = "0.23", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "scix"
+path = "src/bin/scix.rs"
+required-features = ["cli"]
