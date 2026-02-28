@@ -163,4 +163,131 @@ impl SciXClient {
             .await?;
         Ok(())
     }
+
+    // -- Permissions --
+
+    /// Get permissions for a library.
+    ///
+    /// Returns the owner and a map of collaborator emails to permission levels.
+    pub async fn get_permissions(&self, library_id: &str) -> Result<serde_json::Value> {
+        let body = self
+            .get(&format!("/biblib/permissions/{}", library_id), &[])
+            .await?;
+        serde_json::from_str(&body)
+            .map_err(|e| SciXError::Parse(format!("Invalid permissions response: {}", e)))
+    }
+
+    /// Update permissions for a collaborator on a library.
+    ///
+    /// Permission values: "owner", "admin", "write", "read".
+    pub async fn update_permissions(
+        &self,
+        library_id: &str,
+        email: &str,
+        permission: &str,
+    ) -> Result<()> {
+        let body = serde_json::json!({
+            "email": email,
+            "permission": permission,
+        });
+        self.post_json(&format!("/biblib/permissions/{}", library_id), &body)
+            .await?;
+        Ok(())
+    }
+
+    /// Transfer ownership of a library to another user.
+    pub async fn transfer_library(&self, library_id: &str, email: &str) -> Result<()> {
+        let body = serde_json::json!({ "email": email });
+        self.post_json(&format!("/biblib/transfer/{}", library_id), &body)
+            .await?;
+        Ok(())
+    }
+
+    // -- Annotations / Notes --
+
+    /// Get a note/annotation on a paper in a library.
+    pub async fn get_annotation(&self, library_id: &str, bibcode: &str) -> Result<String> {
+        let body = self
+            .get(
+                &format!("/biblib/libraries/{}/notes/{}", library_id, bibcode),
+                &[],
+            )
+            .await?;
+        let parsed: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| SciXError::Parse(format!("Invalid annotation response: {}", e)))?;
+        Ok(parsed["content"].as_str().unwrap_or("").to_string())
+    }
+
+    /// Set a note/annotation on a paper in a library.
+    pub async fn set_annotation(
+        &self,
+        library_id: &str,
+        bibcode: &str,
+        content: &str,
+    ) -> Result<()> {
+        let body = serde_json::json!({ "content": content });
+        self.post_json(
+            &format!("/biblib/libraries/{}/notes/{}", library_id, bibcode),
+            &body,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a note/annotation on a paper in a library.
+    pub async fn delete_annotation(&self, library_id: &str, bibcode: &str) -> Result<()> {
+        self.delete(&format!(
+            "/biblib/libraries/{}/notes/{}",
+            library_id, bibcode
+        ))
+        .await?;
+        Ok(())
+    }
+
+    // -- Set Operations --
+
+    /// Perform a set operation on a library.
+    ///
+    /// Actions: "union", "intersection", "difference", "copy", "empty".
+    /// `source_library_ids` is required for union/intersection/difference/copy.
+    pub async fn library_operation(
+        &self,
+        library_id: &str,
+        action: &str,
+        source_library_ids: Option<&[&str]>,
+    ) -> Result<serde_json::Value> {
+        let mut body = serde_json::json!({ "action": action });
+        if let Some(ids) = source_library_ids {
+            body["libraries"] = serde_json::json!(ids);
+        }
+        let response = self
+            .post_json(
+                &format!("/biblib/libraries/operations/{}", library_id),
+                &body,
+            )
+            .await?;
+        serde_json::from_str(&response)
+            .map_err(|e| SciXError::Parse(format!("Invalid operation response: {}", e)))
+    }
+
+    // -- Add by Query --
+
+    /// Search for papers and add them to a library.
+    ///
+    /// Returns the number of documents added.
+    pub async fn add_documents_by_query(
+        &self,
+        library_id: &str,
+        query: &str,
+        rows: Option<u32>,
+    ) -> Result<u32> {
+        let rows = rows.unwrap_or(50);
+        let results = self.search(query, rows).await?;
+        let bibcodes: Vec<&str> = results.papers.iter().map(|p| p.bibcode.as_str()).collect();
+        if bibcodes.is_empty() {
+            return Ok(0);
+        }
+        self.add_documents(library_id, &bibcodes).await?;
+        Ok(bibcodes.len() as u32)
+    }
 }

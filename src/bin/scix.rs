@@ -121,6 +121,66 @@ mod cli {
         },
         /// Delete a library
         Delete { id: String },
+        /// Show permissions for a library
+        Permissions { id: String },
+        /// Grant a collaborator access to a library
+        Grant {
+            /// Library ID
+            id: String,
+            /// Collaborator email
+            email: String,
+            /// Permission level (owner, admin, write, read)
+            permission: String,
+        },
+        /// Transfer ownership of a library
+        Transfer {
+            /// Library ID
+            id: String,
+            /// New owner email
+            email: String,
+        },
+        /// Manage notes on papers in a library
+        Notes {
+            #[command(subcommand)]
+            action: NotesAction,
+        },
+        /// Perform set operations on a library
+        Ops {
+            /// Library ID
+            id: String,
+            /// Operation: union, intersection, difference, copy, empty
+            action: String,
+            /// Source library IDs
+            #[arg(long)]
+            source: Vec<String>,
+        },
+    }
+
+    #[derive(Subcommand)]
+    enum NotesAction {
+        /// Get a note on a paper
+        Get {
+            /// Library ID
+            library_id: String,
+            /// Bibcode
+            bibcode: String,
+        },
+        /// Set a note on a paper
+        Set {
+            /// Library ID
+            library_id: String,
+            /// Bibcode
+            bibcode: String,
+            /// Note content
+            content: String,
+        },
+        /// Delete a note on a paper
+        Delete {
+            /// Library ID
+            library_id: String,
+            /// Bibcode
+            bibcode: String,
+        },
     }
 
     fn make_client(token: Option<String>) -> scix_client::error::Result<SciXClient> {
@@ -312,6 +372,58 @@ mod cli {
                 LibraryAction::Delete { id } => {
                     client.delete_library(&id).await?;
                     println!("Deleted library: {}", id);
+                }
+                LibraryAction::Permissions { id } => {
+                    let perms = client.get_permissions(&id).await?;
+                    println!("{}", serde_json::to_string_pretty(&perms)?);
+                }
+                LibraryAction::Grant {
+                    id,
+                    email,
+                    permission,
+                } => {
+                    client.update_permissions(&id, &email, &permission).await?;
+                    println!("Granted {} access ({}) to library {}", email, permission, id);
+                }
+                LibraryAction::Transfer { id, email } => {
+                    client.transfer_library(&id, &email).await?;
+                    println!("Transferred library {} to {}", id, email);
+                }
+                LibraryAction::Notes { action: notes_action } => match notes_action {
+                    NotesAction::Get {
+                        library_id,
+                        bibcode,
+                    } => {
+                        let note = client.get_annotation(&library_id, &bibcode).await?;
+                        println!("{}", note);
+                    }
+                    NotesAction::Set {
+                        library_id,
+                        bibcode,
+                        content,
+                    } => {
+                        client
+                            .set_annotation(&library_id, &bibcode, &content)
+                            .await?;
+                        println!("Note set for {} in library {}", bibcode, library_id);
+                    }
+                    NotesAction::Delete {
+                        library_id,
+                        bibcode,
+                    } => {
+                        client.delete_annotation(&library_id, &bibcode).await?;
+                        println!("Note deleted for {} in library {}", bibcode, library_id);
+                    }
+                },
+                LibraryAction::Ops { id, action, source } => {
+                    let source_refs: Vec<&str> = source.iter().map(|s| s.as_str()).collect();
+                    let source_slice: Option<&[&str]> = if source_refs.is_empty() {
+                        None
+                    } else {
+                        Some(&source_refs)
+                    };
+                    let result = client.library_operation(&id, &action, source_slice).await?;
+                    println!("{}", serde_json::to_string_pretty(&result)?);
                 }
             },
 

@@ -411,6 +411,88 @@ impl PySciXClient {
             .map_err(to_py_err)
     }
 
+    /// Get permissions for a library.
+    fn get_permissions(&self, py: Python<'_>, library_id: &str) -> PyResult<PyObject> {
+        let result = self
+            .runtime
+            .block_on(self.client.get_permissions(library_id))
+            .map_err(to_py_err)?;
+        json_to_py(py, &result)
+    }
+
+    /// Update permissions for a collaborator on a library.
+    fn update_permissions(
+        &self,
+        library_id: &str,
+        email: &str,
+        permission: &str,
+    ) -> PyResult<()> {
+        self.runtime
+            .block_on(self.client.update_permissions(library_id, email, permission))
+            .map_err(to_py_err)
+    }
+
+    /// Transfer ownership of a library.
+    fn transfer_library(&self, library_id: &str, email: &str) -> PyResult<()> {
+        self.runtime
+            .block_on(self.client.transfer_library(library_id, email))
+            .map_err(to_py_err)
+    }
+
+    /// Get a note/annotation on a paper in a library.
+    fn get_annotation(&self, library_id: &str, bibcode: &str) -> PyResult<String> {
+        self.runtime
+            .block_on(self.client.get_annotation(library_id, bibcode))
+            .map_err(to_py_err)
+    }
+
+    /// Set a note/annotation on a paper in a library.
+    fn set_annotation(&self, library_id: &str, bibcode: &str, content: &str) -> PyResult<()> {
+        self.runtime
+            .block_on(self.client.set_annotation(library_id, bibcode, content))
+            .map_err(to_py_err)
+    }
+
+    /// Delete a note/annotation on a paper in a library.
+    fn delete_annotation(&self, library_id: &str, bibcode: &str) -> PyResult<()> {
+        self.runtime
+            .block_on(self.client.delete_annotation(library_id, bibcode))
+            .map_err(to_py_err)
+    }
+
+    /// Perform a set operation on a library.
+    #[pyo3(signature = (library_id, action, source_library_ids=None))]
+    fn library_operation(
+        &self,
+        py: Python<'_>,
+        library_id: &str,
+        action: &str,
+        source_library_ids: Option<Vec<String>>,
+    ) -> PyResult<PyObject> {
+        let owned_refs: Option<Vec<&str>> = source_library_ids
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let refs_slice: Option<&[&str]> = owned_refs.as_deref();
+        let result = self
+            .runtime
+            .block_on(self.client.library_operation(library_id, action, refs_slice))
+            .map_err(to_py_err)?;
+        json_to_py(py, &result)
+    }
+
+    /// Search for papers and add them to a library. Returns count of documents added.
+    #[pyo3(signature = (library_id, query, rows=None))]
+    fn add_documents_by_query(
+        &self,
+        library_id: &str,
+        query: &str,
+        rows: Option<u32>,
+    ) -> PyResult<u32> {
+        self.runtime
+            .block_on(self.client.add_documents_by_query(library_id, query, rows))
+            .map_err(to_py_err)
+    }
+
     // -- Reference & object resolution --
 
     /// Resolve free-text references to ADS bibcodes.
