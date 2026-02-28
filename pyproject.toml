@@ -20,5 +20,6 @@ classifiers = [
 
 [tool.maturin]
 features = ["python"]
+bindings = "pyo3"
 module-name = "scix_client"
 manifest-path = "Cargo.toml"

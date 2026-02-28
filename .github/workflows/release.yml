@@ -59,8 +59,9 @@ jobs:
       - name: Package (windows)
         if: runner.os == 'Windows'
         run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
           cd target/${{ matrix.target }}/release
-          7z a ../../../scix-v${env:GITHUB_REF_NAME.Substring(1)}-${{ matrix.target }}.zip scix.exe
+          7z a ../../../scix-v${version}-${{ matrix.target }}.zip scix.exe
         shell: pwsh
 
       - name: Upload artifact

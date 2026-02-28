@@ -10,7 +10,11 @@ repository = "https://github.com/yipihey/scix-client"
 homepage = "https://github.com/yipihey/scix-client"
 readme = "README.md"
 rust-version = "1.75"
-include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "README.md"]
+include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "README.md", "pyproject.toml"]
+
+[lib]
+name = "scix_client"
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
