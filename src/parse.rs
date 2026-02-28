@@ -134,8 +134,8 @@ pub(crate) struct AdsExportResponse {
 
 /// Parse an ADS search/query JSON response into a [`SearchResponse`].
 pub fn parse_search_response(json: &str) -> crate::error::Result<SearchResponse> {
-    let response: AdsApiResponse =
-        serde_json::from_str(json).map_err(|e| SciXError::Parse(format!("Invalid ADS JSON: {}", e)))?;
+    let response: AdsApiResponse = serde_json::from_str(json)
+        .map_err(|e| SciXError::Parse(format!("Invalid ADS JSON: {}", e)))?;
 
     let papers = response
         .response
@@ -152,8 +152,8 @@ pub fn parse_search_response(json: &str) -> crate::error::Result<SearchResponse>
 
 /// Parse an ADS BibTeX export JSON response.
 pub fn parse_export_response(json: &str) -> crate::error::Result<String> {
-    let response: AdsExportResponse =
-        serde_json::from_str(json).map_err(|e| SciXError::Parse(format!("Invalid export response: {}", e)))?;
+    let response: AdsExportResponse = serde_json::from_str(json)
+        .map_err(|e| SciXError::Parse(format!("Invalid export response: {}", e)))?;
     Ok(response.export)
 }
 
@@ -182,12 +182,8 @@ fn document_to_paper(doc: AdsApiDocument) -> Option<Paper> {
     let arxiv_id = extract_arxiv_id(&identifiers);
     let esources = doc.esources.unwrap_or_default();
 
-    let pdf_links = PdfLink::from_esources(
-        &esources,
-        doi.as_deref(),
-        arxiv_id.as_deref(),
-        &bibcode,
-    );
+    let pdf_links =
+        PdfLink::from_esources(&esources, doi.as_deref(), arxiv_id.as_deref(), &bibcode);
 
     let url = format!("https://scixplorer.org/abs/{}", bibcode);
 
@@ -368,10 +364,7 @@ mod tests {
     #[test]
     fn test_extract_arxiv_id_old_format() {
         let ids = vec!["arXiv:astro-ph/9901313".to_string()];
-        assert_eq!(
-            extract_arxiv_id(&ids),
-            Some("astro-ph/9901313".to_string())
-        );
+        assert_eq!(extract_arxiv_id(&ids), Some("astro-ph/9901313".to_string()));
     }
 
     #[test]
@@ -406,10 +399,7 @@ mod tests {
             "arXiv:astro-ph/9901313".to_string(),
             "10.48550/arXiv.astro-ph/9901313".to_string(),
         ];
-        assert_eq!(
-            extract_arxiv_id(&ids),
-            Some("astro-ph/9901313".to_string())
-        );
+        assert_eq!(extract_arxiv_id(&ids), Some("astro-ph/9901313".to_string()));
     }
 
     #[test]

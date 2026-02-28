@@ -1,7 +1,7 @@
 //! Citation metrics endpoint.
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 use crate::types::Metrics;
 
 impl SciXClient {

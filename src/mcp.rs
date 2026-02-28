@@ -270,7 +270,9 @@ async fn tool_library(client: &SciXClient, args: &Value) -> Result<String, SciXE
                 .ok_or_else(|| SciXError::InvalidQuery("'name' required for create".into()))?;
             let description = args["description"].as_str().unwrap_or("");
             let public = args["public"].as_bool().unwrap_or(false);
-            let lib = client.create_library(name, description, public, None).await?;
+            let lib = client
+                .create_library(name, description, public, None)
+                .await?;
             serde_json::to_string_pretty(&lib).map_err(|e| SciXError::Parse(e.to_string()))
         }
         "delete" => {
@@ -402,10 +404,7 @@ fn format_search_results(results: &crate::types::SearchResponse) -> String {
     let mut out = format!("Found {} results:\n\n", results.num_found);
     for (i, paper) in results.papers.iter().enumerate() {
         let authors_str = if paper.authors.len() > 3 {
-            format!(
-                "{} et al.",
-                paper.authors[0].family_name
-            )
+            format!("{} et al.", paper.authors[0].family_name)
         } else {
             paper
                 .authors

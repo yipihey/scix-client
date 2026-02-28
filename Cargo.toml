@@ -7,6 +7,10 @@ description = "Rust client for the SciX (NASA ADS) API — library, CLI, and MCP
 keywords = ["scix", "ads", "nasa", "astronomy", "bibliography"]
 categories = ["api-bindings", "science"]
 repository = "https://github.com/yipihey/scix-client"
+homepage = "https://github.com/yipihey/scix-client"
+readme = "README.md"
+rust-version = "1.75"
+include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "README.md"]
 
 [features]
 default = []
@@ -36,3 +40,8 @@ tokio = { version = "1", features = ["full"] }
 name = "scix"
 path = "src/bin/scix.rs"
 required-features = ["cli"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/scix-v{ version }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"

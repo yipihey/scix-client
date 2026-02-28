@@ -138,16 +138,14 @@ impl QueryBuilder {
     /// Build a citations-of query.
     pub fn citations_of(bibcode: &str) -> Self {
         let mut qb = Self::new();
-        qb.parts
-            .push(format!("citations(bibcode:{})", bibcode));
+        qb.parts.push(format!("citations(bibcode:{})", bibcode));
         qb
     }
 
     /// Build a references-of query.
     pub fn references_of(bibcode: &str) -> Self {
         let mut qb = Self::new();
-        qb.parts
-            .push(format!("references(bibcode:{})", bibcode));
+        qb.parts.push(format!("references(bibcode:{})", bibcode));
         qb
     }
 

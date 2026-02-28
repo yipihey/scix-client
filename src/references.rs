@@ -3,17 +3,14 @@
 //! Converts unstructured citation strings to ADS bibcodes.
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 use crate::types::ResolvedReference;
 
 impl SciXClient {
     /// Resolve free-text references to ADS bibcodes.
     ///
     /// Example: "Einstein 1905 Annalen der Physik 17 891" → bibcode.
-    pub async fn resolve_references(
-        &self,
-        references: &[&str],
-    ) -> Result<Vec<ResolvedReference>> {
+    pub async fn resolve_references(&self, references: &[&str]) -> Result<Vec<ResolvedReference>> {
         let text = references.join("\n");
         let response_body = self
             .post_text("/reference/text", "text/plain", &text)

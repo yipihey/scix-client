@@ -162,10 +162,7 @@ impl PdfLink {
                 }
             } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
                 links.push(PdfLink {
-                    url: format!(
-                        "https://articles.adsabs.harvard.edu/pdf/{}",
-                        bibcode
-                    ),
+                    url: format!("https://articles.adsabs.harvard.edu/pdf/{}", bibcode),
                     link_type: PdfLinkType::AdsScan,
                     label: "ADS Scan".to_string(),
                 });

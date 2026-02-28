@@ -1,6 +1,6 @@
 //! The SciX / NASA ADS API client.
 
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 use crate::rate_limit::RateLimiter;
 use reqwest::Client;
 use std::time::Duration;
@@ -80,16 +80,14 @@ impl SciXClient {
             .send()
             .await?;
 
-        self.rate_limiter.update_from_headers(response.headers()).await;
+        self.rate_limiter
+            .update_from_headers(response.headers())
+            .await;
         handle_response(response).await
     }
 
     /// Make an authenticated POST request with a JSON body.
-    pub(crate) async fn post_json(
-        &self,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> Result<String> {
+    pub(crate) async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<String> {
         self.rate_limiter.acquire().await;
 
         let url = format!("{}{}", self.base_url, path);
@@ -102,7 +100,9 @@ impl SciXClient {
             .send()
             .await?;
 
-        self.rate_limiter.update_from_headers(response.headers()).await;
+        self.rate_limiter
+            .update_from_headers(response.headers())
+            .await;
         handle_response(response).await
     }
 
@@ -126,16 +126,14 @@ impl SciXClient {
             .send()
             .await?;
 
-        self.rate_limiter.update_from_headers(response.headers()).await;
+        self.rate_limiter
+            .update_from_headers(response.headers())
+            .await;
         handle_response(response).await
     }
 
     /// Make an authenticated PUT request with a JSON body.
-    pub(crate) async fn put_json(
-        &self,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> Result<String> {
+    pub(crate) async fn put_json(&self, path: &str, body: &serde_json::Value) -> Result<String> {
         self.rate_limiter.acquire().await;
 
         let url = format!("{}{}", self.base_url, path);
@@ -148,7 +146,9 @@ impl SciXClient {
             .send()
             .await?;
 
-        self.rate_limiter.update_from_headers(response.headers()).await;
+        self.rate_limiter
+            .update_from_headers(response.headers())
+            .await;
         handle_response(response).await
     }
 
@@ -165,7 +165,9 @@ impl SciXClient {
             .send()
             .await?;
 
-        self.rate_limiter.update_from_headers(response.headers()).await;
+        self.rate_limiter
+            .update_from_headers(response.headers())
+            .await;
         handle_response(response).await
     }
 }

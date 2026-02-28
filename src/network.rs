@@ -3,7 +3,7 @@
 //! Returns author collaboration networks and paper citation/reference clusters.
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 
 impl SciXClient {
     /// Get author collaboration network for a set of papers.

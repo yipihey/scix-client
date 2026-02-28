@@ -4,8 +4,8 @@
 
 #[cfg(feature = "cli")]
 mod cli {
-    use scix_client::{SciXClient, ExportFormat, Sort, SortDirection};
     use clap::{Parser, Subcommand};
+    use scix_client::{ExportFormat, SciXClient, Sort, SortDirection};
 
     #[derive(Parser)]
     #[command(name = "scix", about = "SciX / NASA ADS API client", version)]
@@ -141,7 +141,7 @@ mod cli {
     }
 
     fn print_papers_table(papers: &[scix_client::Paper]) {
-        use comfy_table::{Table, ContentArrangement};
+        use comfy_table::{ContentArrangement, Table};
 
         let mut table = Table::new();
         table.set_content_arrangement(ContentArrangement::Dynamic);
@@ -182,7 +182,9 @@ mod cli {
                 fields,
             } => {
                 let sort_val = sort.as_deref().map(parse_sort);
-                let fields_str = fields.as_deref().unwrap_or(scix_client::parse::DEFAULT_SEARCH_FIELDS);
+                let fields_str = fields
+                    .as_deref()
+                    .unwrap_or(scix_client::parse::DEFAULT_SEARCH_FIELDS);
                 let results = client
                     .search_with_options(&query, fields_str, sort_val.as_ref(), rows, 0)
                     .await?;
@@ -264,13 +266,8 @@ mod cli {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             }
 
-            Commands::Links {
-                bibcode,
-                link_type,
-            } => {
-                let result = client
-                    .resolve_links(&bibcode, link_type.as_deref())
-                    .await?;
+            Commands::Links { bibcode, link_type } => {
+                let result = client.resolve_links(&bibcode, link_type.as_deref()).await?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
             }
 
@@ -282,7 +279,7 @@ mod cli {
                             println!("{}", serde_json::to_string_pretty(&libs)?);
                         }
                         OutputFormat::Table => {
-                            use comfy_table::{Table, ContentArrangement};
+                            use comfy_table::{ContentArrangement, Table};
                             let mut table = Table::new();
                             table.set_content_arrangement(ContentArrangement::Dynamic);
                             table.set_header(vec!["ID", "Name", "Documents", "Public"]);
@@ -307,7 +304,9 @@ mod cli {
                     description,
                     public,
                 } => {
-                    let lib = client.create_library(&name, &description, public, None).await?;
+                    let lib = client
+                        .create_library(&name, &description, public, None)
+                        .await?;
                     println!("Created library: {} ({})", lib.name, lib.id);
                 }
                 LibraryAction::Delete { id } => {

@@ -31,32 +31,39 @@ export ADS_API_TOKEN="your-token-here"
 
 ## Installation
 
-### CLI / MCP binary (from source)
+### CLI / MCP binary
 
 ```bash
+# From crates.io (recommended)
+cargo install scix-client --features cli
+
+# Pre-built binary (via cargo-binstall — no compile needed)
+cargo binstall scix-client
+
+# From source
 cargo build --features cli --release
-cp target/release/scix ~/.local/bin/   # or anywhere on your PATH
+cp target/release/scix ~/.local/bin/
 ```
 
 ### As a Rust dependency
 
 ```toml
 [dependencies]
-scix-client = { git = "https://github.com/yipihey/scix-client", version = "0.1" }
+scix-client = "0.1"
 ```
 
-### Python (via maturin)
+### Python
 
 ```bash
-cd scix-client
+# From PyPI (recommended)
+pip install scix-client
+
+# From source (requires Rust toolchain)
 pip install maturin
 maturin develop          # install into current virtualenv for development
-# or
-maturin build --release  # build a wheel in target/wheels/
-pip install target/wheels/scix_client-*.whl
 ```
 
-Requires Python 3.8+ and a Rust toolchain.
+Requires Python 3.8+.
 
 ---
 

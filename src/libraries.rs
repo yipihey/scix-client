@@ -1,7 +1,7 @@
 //! SciX personal library management endpoints.
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 use crate::types::{Library, LibraryDetail};
 
 impl SciXClient {
@@ -37,9 +37,7 @@ impl SciXClient {
 
     /// Get a library with its documents.
     pub async fn get_library(&self, id: &str) -> Result<LibraryDetail> {
-        let body = self
-            .get(&format!("/biblib/libraries/{}", id), &[])
-            .await?;
+        let body = self.get(&format!("/biblib/libraries/{}", id), &[]).await?;
         let parsed: serde_json::Value = serde_json::from_str(&body)
             .map_err(|e| SciXError::Parse(format!("Invalid library response: {}", e)))?;
 

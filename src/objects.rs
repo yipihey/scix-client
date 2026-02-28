@@ -4,16 +4,13 @@
 //! using SIMBAD/NED integration.
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 
 impl SciXClient {
     /// Resolve astronomical object names to associated bibcodes.
     ///
     /// Uses SIMBAD/NED databases to find papers about the given objects.
-    pub async fn resolve_objects(
-        &self,
-        objects: &[&str],
-    ) -> Result<serde_json::Value> {
+    pub async fn resolve_objects(&self, objects: &[&str]) -> Result<serde_json::Value> {
         let body = serde_json::json!({
             "query": objects.iter()
                 .map(|o| format!("object:\"{}\"", o))

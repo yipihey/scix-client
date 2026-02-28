@@ -24,10 +24,7 @@ fn json_to_py(py: Python<'_>, value: &serde_json::Value) -> PyResult<PyObject> {
     pythonize::pythonize(py, value)
         .map(|bound| bound.unbind())
         .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "JSON conversion error: {}",
-                e
-            ))
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("JSON conversion error: {}", e))
         })
 }
 
@@ -365,11 +362,15 @@ impl PySciXClient {
         public: bool,
         bibcodes: Option<Vec<String>>,
     ) -> PyResult<Library> {
-        let owned_refs: Option<Vec<&str>> =
-            bibcodes.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+        let owned_refs: Option<Vec<&str>> = bibcodes
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect());
         let refs_slice: Option<&[&str]> = owned_refs.as_deref();
         self.runtime
-            .block_on(self.client.create_library(name, description, public, refs_slice))
+            .block_on(
+                self.client
+                    .create_library(name, description, public, refs_slice),
+            )
             .map_err(to_py_err)
     }
 

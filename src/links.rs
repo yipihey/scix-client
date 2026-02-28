@@ -3,7 +3,7 @@
 //! Resolves links for a paper (full-text, datasets, citations, references).
 
 use crate::client::SciXClient;
-use crate::error::{SciXError, Result};
+use crate::error::{Result, SciXError};
 
 impl SciXClient {
     /// Resolve links for a paper.
