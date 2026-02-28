@@ -122,7 +122,7 @@ See [docs/python.md](docs/python.md) for the full API reference including v0.2.0
 
 ```toml
 [dependencies]
-scix-client = "0.2"
+scix-client = "0.3"
 ```
 
 ```rust

@@ -6,7 +6,7 @@
 
 ```toml
 [dependencies]
-scix-client = "0.2"
+scix-client = "0.3"
 ```
 
 ## Basic Search

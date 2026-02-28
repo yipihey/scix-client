@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-02-28
+
+### Setup Wizard
+- New `scix setup` command — one-command MCP server configuration
+- Auto-detects installed editors (Claude Code, Claude Desktop, Cursor, Zed)
+- Prompts for API token, validates against the SciX API
+- Writes correct MCP config for each detected editor
+- Supports `--yes` for non-interactive mode and `--skip-validation`
+- Idempotent — safe to run multiple times
+
 ## 0.2.0 — 2026-02-28
 
 ### Library Management
