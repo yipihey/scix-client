@@ -250,7 +250,8 @@ fn update_json_config(
 ) -> std::result::Result<ConfigResult, String> {
     // Read existing file or start fresh.
     let content = if path.exists() {
-        std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
     } else {
         "{}".to_string()
     };
@@ -287,9 +288,7 @@ fn update_json_config(
         let section = obj
             .get_mut(section_key)
             .and_then(|v| v.as_object_mut())
-            .ok_or_else(|| {
-                format!("\"{}\" in {} is not an object", section_key, path.display())
-            })?;
+            .ok_or_else(|| format!("\"{}\" in {} is not an object", section_key, path.display()))?;
 
         // Check if already configured.
         if section.contains_key("scix") && !yes {
@@ -359,12 +358,7 @@ fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
 }
 
 /// Configure a single editor.
-fn configure_editor(
-    editor: &DetectedEditor,
-    binary: &str,
-    token: &str,
-    yes: bool,
-) -> ConfigResult {
+fn configure_editor(editor: &DetectedEditor, binary: &str, token: &str, yes: bool) -> ConfigResult {
     if editor.use_cli && editor.target == EditorTarget::ClaudeCode {
         return configure_claude_code_cli(binary, token);
     }
