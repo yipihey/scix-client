@@ -205,7 +205,15 @@ async fn tool_search(client: &SciXClient, args: &Value) -> Result<String, SciXEr
         )
     });
 
-    let fl = fields.unwrap_or(crate::parse::DEFAULT_SEARCH_FIELDS);
+    let fl_owned: String;
+    let fl = match fields {
+        None => crate::parse::DEFAULT_SEARCH_FIELDS,
+        Some(f) if f.split(',').any(|s| s.trim() == "bibcode") => f,
+        Some(f) => {
+            fl_owned = format!("bibcode,{}", f);
+            fl_owned.as_str()
+        }
+    };
     let results = client
         .search_with_options(query, fl, sort_val.as_ref(), rows, start)
         .await?;
