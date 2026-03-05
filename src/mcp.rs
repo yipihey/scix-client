@@ -268,14 +268,36 @@ async fn tool_library(client: &SciXClient, args: &Value) -> Result<String, SciXE
     match action {
         "list" => {
             let libs = client.list_libraries().await?;
-            serde_json::to_string_pretty(&libs).map_err(|e| SciXError::Parse(e.to_string()))
+            Ok(format_library_list(&libs))
         }
         "get" => {
             let id = args["id"]
                 .as_str()
                 .ok_or_else(|| SciXError::InvalidQuery("'id' required for get".into()))?;
             let lib = client.get_library(id).await?;
-            serde_json::to_string_pretty(&lib).map_err(|e| SciXError::Parse(e.to_string()))
+
+            let mut out = format!(
+                "Library: {}\nDocuments: {}\n",
+                lib.metadata.name, lib.metadata.num_documents
+            );
+            if !lib.metadata.description.is_empty() {
+                out.push_str(&format!("Description: {}\n", lib.metadata.description));
+            }
+            out.push('\n');
+
+            if lib.documents.is_empty() {
+                out.push_str("No documents in this library.\n");
+            } else {
+                // Fetch paper details via bigquery
+                let bibcode_refs: Vec<&str> =
+                    lib.documents.iter().map(|s| s.as_str()).collect();
+                let results = client
+                    .bigquery(&bibcode_refs, None, None, None, None)
+                    .await?;
+                out.push_str(&format_search_results(&results, 0));
+            }
+
+            Ok(out)
         }
         "create" => {
             let name = args["name"]
@@ -569,6 +591,24 @@ async fn tool_get_paper(client: &SciXClient, args: &Value) -> Result<String, Sci
 }
 
 // --- Formatting helpers ---
+
+fn format_library_list(libs: &[crate::types::Library]) -> String {
+    if libs.is_empty() {
+        return "No libraries found.".to_string();
+    }
+    let mut out = format!("Found {} libraries:\n\n", libs.len());
+    for lib in libs {
+        out.push_str(&format!(
+            "- {} ({} documents)\n  ID: {}\n",
+            lib.name, lib.num_documents, lib.id
+        ));
+        if !lib.description.is_empty() {
+            out.push_str(&format!("  Description: {}\n", lib.description));
+        }
+        out.push('\n');
+    }
+    out
+}
 
 fn format_search_results(results: &crate::types::SearchResponse, start: u32) -> String {
     let mut out = format!("Found {} results:\n\n", results.num_found);
@@ -907,3 +947,182 @@ Sort options:
   score desc                  - Best match first
   read_count desc             - Most read first
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Author, Library, Paper, SearchResponse};
+
+    fn make_paper(bibcode: &str, title: &str, authors: &[&str], year: u16) -> Paper {
+        Paper {
+            bibcode: bibcode.to_string(),
+            title: title.to_string(),
+            authors: authors
+                .iter()
+                .map(|name| Author::from_ads_format(name))
+                .collect(),
+            year: Some(year),
+            publication: None,
+            citation_count: None,
+            doi: None,
+            arxiv_id: None,
+            abstract_text: None,
+            doctype: None,
+            identifiers: vec![],
+            esources: vec![],
+            pdf_links: vec![],
+            properties: vec![],
+            url: String::new(),
+        }
+    }
+
+    fn make_library(id: &str, name: &str, num_documents: u32, description: &str) -> Library {
+        Library {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+            num_documents,
+            public: false,
+            owner: "test@example.com".to_string(),
+            date_created: "2024-01-01".to_string(),
+            date_last_modified: "2024-01-01".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_format_search_results_basic() {
+        let results = SearchResponse {
+            papers: vec![
+                make_paper(
+                    "2016PhRvL.116f1102A",
+                    "Observation of Gravitational Waves",
+                    &["Abbott, B. P.", "Einstein, A."],
+                    2016,
+                ),
+                make_paper(
+                    "1998AJ....116.1009R",
+                    "Observational Evidence from Supernovae",
+                    &["Riess, A. G."],
+                    1998,
+                ),
+            ],
+            num_found: 2,
+        };
+
+        let output = format_search_results(&results, 0);
+        assert!(output.contains("Found 2 results:"));
+        assert!(output.contains("1. Observation of Gravitational Waves (2016)"));
+        assert!(output.contains("Abbott, Einstein"));
+        assert!(output.contains("Bibcode: 2016PhRvL.116f1102A"));
+        assert!(output.contains("2. Observational Evidence from Supernovae (1998)"));
+        assert!(output.contains("Riess"));
+        assert!(output.contains("Bibcode: 1998AJ....116.1009R"));
+    }
+
+    #[test]
+    fn test_format_search_results_with_citations_and_doi() {
+        let mut paper = make_paper(
+            "2016PhRvL.116f1102A",
+            "Gravitational Waves",
+            &["Abbott, B. P."],
+            2016,
+        );
+        paper.citation_count = Some(5000);
+        paper.doi = Some("10.1103/PhysRevLett.116.061102".to_string());
+
+        let results = SearchResponse {
+            papers: vec![paper],
+            num_found: 1,
+        };
+
+        let output = format_search_results(&results, 0);
+        assert!(output.contains("Citations: 5000"));
+        assert!(output.contains("DOI: 10.1103/PhysRevLett.116.061102"));
+    }
+
+    #[test]
+    fn test_format_search_results_many_authors_uses_et_al() {
+        let paper = make_paper(
+            "2020ApJ...000..000X",
+            "Many Authors Paper",
+            &["First, A.", "Second, B.", "Third, C.", "Fourth, D."],
+            2020,
+        );
+        let results = SearchResponse {
+            papers: vec![paper],
+            num_found: 1,
+        };
+
+        let output = format_search_results(&results, 0);
+        assert!(output.contains("First et al."));
+        assert!(!output.contains("Second"));
+    }
+
+    #[test]
+    fn test_format_search_results_pagination_hint() {
+        let results = SearchResponse {
+            papers: vec![make_paper("2020X...", "Paper", &["Auth, A."], 2020)],
+            num_found: 100,
+        };
+
+        let output = format_search_results(&results, 0);
+        assert!(output.contains("Use start=1 to see more results"));
+    }
+
+    #[test]
+    fn test_format_search_results_with_start_offset() {
+        let results = SearchResponse {
+            papers: vec![make_paper("2020X...", "Paper", &["Auth, A."], 2020)],
+            num_found: 50,
+        };
+
+        let output = format_search_results(&results, 10);
+        assert!(output.contains("11. Paper (2020)"));
+        assert!(output.contains("Use start=11 to see more results"));
+    }
+
+    #[test]
+    fn test_format_search_results_empty() {
+        let results = SearchResponse {
+            papers: vec![],
+            num_found: 0,
+        };
+
+        let output = format_search_results(&results, 0);
+        assert!(output.contains("Found 0 results:"));
+    }
+
+    #[test]
+    fn test_format_library_list_basic() {
+        let libs = vec![
+            make_library("abc123", "Cosmology", 22, "Dark matter papers"),
+            make_library("def456", "Exoplanets", 15, ""),
+        ];
+
+        let output = format_library_list(&libs);
+        assert!(output.contains("Found 2 libraries:"));
+        assert!(output.contains("- Cosmology (22 documents)"));
+        assert!(output.contains("ID: abc123"));
+        assert!(output.contains("Description: Dark matter papers"));
+        assert!(output.contains("- Exoplanets (15 documents)"));
+        assert!(output.contains("ID: def456"));
+        // Empty description should not appear
+        assert!(!output.contains("Description: \n"));
+    }
+
+    #[test]
+    fn test_format_library_list_empty() {
+        let output = format_library_list(&[]);
+        assert_eq!(output, "No libraries found.");
+    }
+
+    #[test]
+    fn test_format_library_list_single() {
+        let libs = vec![make_library("id1", "My Library", 5, "Test")];
+        let output = format_library_list(&libs);
+        assert!(output.contains("Found 1 libraries:"));
+        assert!(output.contains("- My Library (5 documents)"));
+        assert!(output.contains("ID: id1"));
+        assert!(output.contains("Description: Test"));
+    }
+}
