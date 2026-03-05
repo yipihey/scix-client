@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "scix-client"
-version = "0.3.0"
+version = "0.3.1"
 description = "Python client for the SciX (NASA ADS) API — powered by Rust"
 requires-python = ">=3.8"
 license = { text = "MIT" }

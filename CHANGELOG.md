@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-03-05
+
+### Bug Fixes
+- Ensure `bibcode` is always included in search result fields, even when custom fields are requested
+
 ## 0.3.0 — 2026-02-28
 
 ### Setup Wizard
