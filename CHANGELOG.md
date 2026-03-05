@@ -2,6 +2,9 @@
 
 ## 0.3.1 — 2026-03-05
 
+### Enhancements
+- Library `get` and `list` actions now return full paper details (title, authors, year) instead of bare bibcodes
+
 ### Bug Fixes
 - Ensure `bibcode` is always included in search result fields, even when custom fields are requested
 
