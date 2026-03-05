@@ -289,8 +289,7 @@ async fn tool_library(client: &SciXClient, args: &Value) -> Result<String, SciXE
                 out.push_str("No documents in this library.\n");
             } else {
                 // Fetch paper details via bigquery
-                let bibcode_refs: Vec<&str> =
-                    lib.documents.iter().map(|s| s.as_str()).collect();
+                let bibcode_refs: Vec<&str> = lib.documents.iter().map(|s| s.as_str()).collect();
                 let results = client
                     .bigquery(&bibcode_refs, None, None, None, None)
                     .await?;
