@@ -147,21 +147,7 @@ async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Va
     let tool_name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
 
-    let result = match tool_name {
-        "scix_search" => tool_search(client, args).await,
-        "scix_bigquery" => tool_bigquery(client, args).await,
-        "scix_export" => tool_export(client, args).await,
-        "scix_metrics" => tool_metrics(client, args).await,
-        "scix_library" => tool_library(client, args).await,
-        "scix_library_documents" => tool_library_documents(client, args).await,
-        "scix_citation_helper" => tool_citation_helper(client, args).await,
-        "scix_network" => tool_network(client, args).await,
-        "scix_object_search" => tool_object_search(client, args).await,
-        "scix_resolve_reference" => tool_resolve_reference(client, args).await,
-        "scix_resolve_links" => tool_resolve_links(client, args).await,
-        "scix_get_paper" => tool_get_paper(client, args).await,
-        _ => Err(SciXError::Config(format!("Unknown tool: {}", tool_name))),
-    };
+    let result = dispatch_tool_call(client, tool_name, args).await;
 
     match result {
         Ok(content) => json!({
@@ -180,6 +166,42 @@ async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Va
             }
         }),
     }
+}
+
+/// Dispatch a tool call by name and return its text result.
+///
+/// This is the same dispatch table used by the MCP server, exposed so direct
+/// LLM clients (e.g. `scix chat`) can drive the same set of tools without
+/// going through the MCP protocol layer.
+pub async fn dispatch_tool_call(
+    client: &SciXClient,
+    name: &str,
+    args: &Value,
+) -> Result<String, SciXError> {
+    match name {
+        "scix_search" => tool_search(client, args).await,
+        "scix_bigquery" => tool_bigquery(client, args).await,
+        "scix_export" => tool_export(client, args).await,
+        "scix_metrics" => tool_metrics(client, args).await,
+        "scix_library" => tool_library(client, args).await,
+        "scix_library_documents" => tool_library_documents(client, args).await,
+        "scix_citation_helper" => tool_citation_helper(client, args).await,
+        "scix_network" => tool_network(client, args).await,
+        "scix_object_search" => tool_object_search(client, args).await,
+        "scix_resolve_reference" => tool_resolve_reference(client, args).await,
+        "scix_resolve_links" => tool_resolve_links(client, args).await,
+        "scix_get_paper" => tool_get_paper(client, args).await,
+        _ => Err(SciXError::Config(format!("Unknown tool: {}", name))),
+    }
+}
+
+/// Public accessor for the JSON-Schema tool definitions.
+///
+/// Returns the same array as the MCP `tools/list` response. Useful for
+/// callers building direct LLM tool-use loops or for emitting tool schemas
+/// in provider-specific shapes.
+pub fn tool_definitions_value() -> Value {
+    tool_definitions()
 }
 
 // --- Tool implementations ---

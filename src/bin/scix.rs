@@ -117,6 +117,18 @@ mod cli {
         },
         /// Diagnose installation, token, API connectivity, and editor detection
         Doctor,
+        /// Interactive chat REPL with any tool-use-capable LLM
+        Chat {
+            /// LLM provider (default: auto-detect from environment)
+            #[arg(long, value_enum)]
+            provider: Option<scix_client::chat::Provider>,
+            /// Model name (default: provider-specific)
+            #[arg(long)]
+            model: Option<String>,
+            /// Max tool-call iterations per user message
+            #[arg(long)]
+            max_turns: Option<u32>,
+        },
     }
 
     #[derive(Subcommand)]
@@ -462,6 +474,14 @@ mod cli {
 
             Commands::Serve => {
                 scix_client::mcp::run_server(client).await?;
+            }
+
+            Commands::Chat {
+                provider,
+                model,
+                max_turns,
+            } => {
+                scix_client::chat::run_chat(provider, model, max_turns, client).await?;
             }
 
             Commands::Setup { .. } | Commands::Doctor => unreachable!(),

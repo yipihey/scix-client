@@ -65,6 +65,9 @@ pub mod setup;
 #[cfg(feature = "cli")]
 pub mod doctor;
 
+#[cfg(feature = "cli")]
+pub mod chat;
+
 #[cfg(feature = "python")]
 pub mod python;
 
