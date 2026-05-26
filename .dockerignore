@@ -1,0 +1,10 @@
+target/
+.git/
+.github/
+docs/
+*.md
+!README.md
+Dockerfile
+.dockerignore
+.gitignore
+install.sh

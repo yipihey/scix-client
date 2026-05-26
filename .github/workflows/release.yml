@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -163,3 +164,66 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # --- Job 7: Build and push Docker image to ghcr.io ---
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --- Job 8: Bump Homebrew formula in the tap repo ---
+  # Requires:
+  #   - a tap repo at github.com/yipihey/homebrew-scix
+  #   - HOMEBREW_TAP_TOKEN secret with `repo` scope on that tap
+  # Skips silently if the secret is not configured.
+  homebrew:
+    needs: github-release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, '-') }}  # skip pre-releases
+    steps:
+      - name: Resolve version + token presence
+        id: ver
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+            echo "HOMEBREW_TAP_TOKEN not set; skipping formula bump."
+          fi
+      - name: Bump formula
+        if: steps.ver.outputs.have_token == 'true'
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: scix-client
+          homebrew-tap: yipihey/homebrew-scix
+          download-url: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/scix-v${{ steps.ver.outputs.version }}-x86_64-apple-darwin.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
