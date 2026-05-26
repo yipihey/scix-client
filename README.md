@@ -18,8 +18,6 @@ One binary (`scix`) does everything. Python bindings are auto-generated from the
 
 ## Install
 
-Pick whichever is most convenient. All install the same `scix` binary.
-
 ```bash
 # One-line installer (no Rust toolchain required)
 curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
@@ -31,9 +29,6 @@ pip install scix-client          # or: uvx scix-client, pipx install scix-client
 cargo install scix-client --features cli
 # or, prebuilt binary via cargo-binstall:
 cargo binstall scix-client
-
-# Docker
-docker run --rm -e SCIX_API_TOKEN=... ghcr.io/yipihey/scix-client search "dark matter"
 ```
 
 Verify your setup at any time with:

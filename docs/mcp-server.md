@@ -29,9 +29,6 @@ cargo install scix-client --features cli
 # Pre-built binary (via cargo-binstall — no compile needed)
 cargo binstall scix-client
 
-# Docker
-docker pull ghcr.io/yipihey/scix-client
-
 # From source
 cargo build --features cli --release
 cp target/release/scix ~/.local/bin/
