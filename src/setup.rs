@@ -1,12 +1,14 @@
 //! `scix setup` — one-command MCP server configuration for AI editors.
 //!
-//! Detects installed editors (Claude Code, Claude Desktop, Cursor, Zed),
-//! prompts for an API token, validates it, and writes the correct MCP
-//! config for each editor.
+//! Detects installed editors (Claude Code, Claude Desktop, Cursor, Zed, Gemini
+//! CLI, Codex CLI, Windsurf), prompts for an API token, validates it, and
+//! writes the correct MCP config for each editor.
 
 use crate::error::{Result, SciXError};
 use crate::SciXClient;
 use std::path::PathBuf;
+
+const TOKEN_URL: &str = "https://ui.adsabs.harvard.edu/user/settings/token";
 
 /// Supported AI editors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -15,6 +17,9 @@ pub enum EditorTarget {
     ClaudeDesktop,
     Cursor,
     Zed,
+    GeminiCli,
+    CodexCli,
+    Windsurf,
 }
 
 impl std::fmt::Display for EditorTarget {
@@ -24,6 +29,9 @@ impl std::fmt::Display for EditorTarget {
             Self::ClaudeDesktop => write!(f, "Claude Desktop"),
             Self::Cursor => write!(f, "Cursor"),
             Self::Zed => write!(f, "Zed"),
+            Self::GeminiCli => write!(f, "Gemini CLI"),
+            Self::CodexCli => write!(f, "Codex CLI"),
+            Self::Windsurf => write!(f, "Windsurf"),
         }
     }
 }
@@ -86,7 +94,21 @@ fn resolve_token(yes: bool) -> Result<String> {
 
     // Interactive prompt.
     println!("  No API token found in environment.");
-    println!("  Get a free token at: https://ui.adsabs.harvard.edu/user/settings/token");
+    println!("  Get a free token at: {}", TOKEN_URL);
+
+    let open_browser = dialoguer::Confirm::new()
+        .with_prompt("  Open the token page in your browser now?")
+        .default(true)
+        .interact()
+        .unwrap_or(false);
+    if open_browser {
+        if let Err(e) = webbrowser::open(TOKEN_URL) {
+            println!(
+                "  Could not open browser ({}). Visit the URL above manually.",
+                e
+            );
+        }
+    }
     println!();
 
     let token: String = dialoguer::Password::new()
@@ -138,6 +160,15 @@ fn claude_cli_available() -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Public: return the list of editor targets detected on this system.
+/// Used by `scix doctor`.
+pub fn detect_editors_public(filter: Option<EditorTarget>) -> Vec<EditorTarget> {
+    detect_editors(filter)
+        .into_iter()
+        .map(|e| e.target)
+        .collect()
 }
 
 /// Detect which editors are installed.
@@ -208,6 +239,42 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
             editors.push(DetectedEditor {
                 target: EditorTarget::Zed,
                 config_path: Some(zed_dir.join("settings.json")),
+                use_cli: false,
+            });
+        }
+    }
+
+    // Gemini CLI (Google) — ~/.gemini/settings.json with mcpServers key.
+    if filter.is_none() || filter == Some(EditorTarget::GeminiCli) {
+        let gemini_dir = home.join(".gemini");
+        if gemini_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::GeminiCli,
+                config_path: Some(gemini_dir.join("settings.json")),
+                use_cli: false,
+            });
+        }
+    }
+
+    // Codex CLI (OpenAI) — ~/.codex/config.toml with [mcp_servers.scix] table.
+    if filter.is_none() || filter == Some(EditorTarget::CodexCli) {
+        let codex_dir = home.join(".codex");
+        if codex_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::CodexCli,
+                config_path: Some(codex_dir.join("config.toml")),
+                use_cli: false,
+            });
+        }
+    }
+
+    // Windsurf (Codeium) — ~/.codeium/windsurf/mcp_config.json.
+    if filter.is_none() || filter == Some(EditorTarget::Windsurf) {
+        let windsurf_dir = home.join(".codeium/windsurf");
+        if windsurf_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::Windsurf,
+                config_path: Some(windsurf_dir.join("mcp_config.json")),
                 use_cli: false,
             });
         }
@@ -357,6 +424,83 @@ fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
     }
 }
 
+/// Update a TOML config file, inserting `[mcp_servers.scix]`.
+/// Used by Codex CLI which is TOML-native.
+fn update_toml_codex_config(
+    path: &PathBuf,
+    binary: &str,
+    token: &str,
+    yes: bool,
+) -> std::result::Result<ConfigResult, String> {
+    let content = if path.exists() {
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
+    } else {
+        String::new()
+    };
+
+    let mut root: toml::Table = if content.trim().is_empty() {
+        toml::Table::new()
+    } else {
+        content
+            .parse()
+            .map_err(|e| format!("Could not parse {}: {}", path.display(), e))?
+    };
+
+    // Ensure [mcp_servers] table exists.
+    if !root.contains_key("mcp_servers") {
+        root.insert(
+            "mcp_servers".to_string(),
+            toml::Value::Table(toml::Table::new()),
+        );
+    }
+    let servers = root
+        .get_mut("mcp_servers")
+        .and_then(|v| v.as_table_mut())
+        .ok_or_else(|| format!("\"mcp_servers\" in {} is not a table", path.display()))?;
+
+    if servers.contains_key("scix") && !yes {
+        let overwrite = dialoguer::Confirm::new()
+            .with_prompt(format!(
+                "  scix is already configured in {}. Overwrite?",
+                path.display()
+            ))
+            .default(false)
+            .interact()
+            .unwrap_or(false);
+        if !overwrite {
+            return Ok(ConfigResult::Skipped);
+        }
+    }
+
+    // Build the scix sub-table.
+    let mut scix_entry = toml::Table::new();
+    scix_entry.insert(
+        "command".to_string(),
+        toml::Value::String(binary.to_string()),
+    );
+    scix_entry.insert(
+        "args".to_string(),
+        toml::Value::Array(vec![toml::Value::String("serve".to_string())]),
+    );
+    let mut env_table = toml::Table::new();
+    env_table.insert(
+        "SCIX_API_TOKEN".to_string(),
+        toml::Value::String(token.to_string()),
+    );
+    scix_entry.insert("env".to_string(), toml::Value::Table(env_table));
+    servers.insert("scix".to_string(), toml::Value::Table(scix_entry));
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {}", parent.display(), e))?;
+    }
+    std::fs::write(path, toml::to_string_pretty(&root).unwrap().as_bytes())
+        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))?;
+
+    Ok(ConfigResult::Configured)
+}
+
 /// Configure a single editor.
 fn configure_editor(editor: &DetectedEditor, binary: &str, token: &str, yes: bool) -> ConfigResult {
     if editor.use_cli && editor.target == EditorTarget::ClaudeCode {
@@ -367,6 +511,17 @@ fn configure_editor(editor: &DetectedEditor, binary: &str, token: &str, yes: boo
         Some(p) => p,
         None => return ConfigResult::Failed("no config path".to_string()),
     };
+
+    // Codex CLI uses TOML; everyone else uses JSON with slight schema variations.
+    if editor.target == EditorTarget::CodexCli {
+        return match update_toml_codex_config(path, binary, token, yes) {
+            Ok(result) => result,
+            Err(msg) => {
+                eprintln!("  {}", msg);
+                ConfigResult::Failed("parse error".to_string())
+            }
+        };
+    }
 
     let (section_key, entry) = match editor.target {
         EditorTarget::Zed => ("context_servers", zed_mcp_entry(binary, token)),
@@ -419,6 +574,9 @@ pub async fn run_setup(
         EditorTarget::ClaudeDesktop,
         EditorTarget::Cursor,
         EditorTarget::Zed,
+        EditorTarget::GeminiCli,
+        EditorTarget::CodexCli,
+        EditorTarget::Windsurf,
     ];
 
     let detected = detect_editors(editor);

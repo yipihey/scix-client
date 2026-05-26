@@ -115,6 +115,8 @@ mod cli {
             #[arg(long, short = 'y')]
             yes: bool,
         },
+        /// Diagnose installation, token, API connectivity, and editor detection
+        Doctor,
     }
 
     #[derive(Subcommand)]
@@ -245,7 +247,7 @@ mod cli {
     pub async fn run() -> scix_client::error::Result<()> {
         let cli = Cli::parse();
 
-        // Setup doesn't need a pre-built client.
+        // Setup / Doctor run before any client is built.
         if let Commands::Setup {
             editor,
             skip_validation,
@@ -253,6 +255,9 @@ mod cli {
         } = cli.command
         {
             return scix_client::setup::run_setup(editor, skip_validation, yes).await;
+        }
+        if matches!(cli.command, Commands::Doctor) {
+            return scix_client::doctor::run_doctor().await;
         }
 
         let client = make_client(cli.token)?;
@@ -459,7 +464,7 @@ mod cli {
                 scix_client::mcp::run_server(client).await?;
             }
 
-            Commands::Setup { .. } => unreachable!(),
+            Commands::Setup { .. } | Commands::Doctor => unreachable!(),
         }
 
         Ok(())

@@ -62,6 +62,9 @@ pub mod mcp;
 #[cfg(feature = "cli")]
 pub mod setup;
 
+#[cfg(feature = "cli")]
+pub mod doctor;
+
 #[cfg(feature = "python")]
 pub mod python;
 
