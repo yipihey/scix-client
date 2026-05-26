@@ -8,12 +8,34 @@ It also works standalone: as a CLI tool, a Python library, or a Rust crate.
 
 | Mode | What it does | Guide |
 |------|-------------|-------|
-| **MCP server** (`scix serve`) | Expose SciX tools to Claude, Cursor, Zed, etc. | [docs/mcp-server.md](docs/mcp-server.md) |
+| **MCP server** (`scix serve`) | Expose SciX tools to Claude, Cursor, Zed, Gemini CLI, Codex CLI, Windsurf | [docs/mcp-server.md](docs/mcp-server.md) |
+| **Chat REPL** (`scix chat`) | Built-in tool-use loop against any model (Anthropic, OpenAI, Gemini, Ollama) — no MCP host needed | below |
 | **CLI** (`scix`) | Command-line tool for your terminal | [docs/cli.md](docs/cli.md) |
 | **Python library** (`scix_client`) | Native Python module — `pip install scix-client` | [docs/python.md](docs/python.md) |
 | **Rust library** (`scix_client`) | Async Rust crate — `cargo add scix-client` | [docs/rust.md](docs/rust.md) |
 
 One binary (`scix`) does everything. Python bindings are auto-generated from the Rust types — zero extra maintenance.
+
+## Install
+
+```bash
+# One-line installer (no Rust toolchain required)
+curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
+
+# From PyPI (also gives you the Python module)
+pip install scix-client          # or: uvx scix-client, pipx install scix-client
+
+# From crates.io (compiles locally)
+cargo install scix-client --features cli
+# or, prebuilt binary via cargo-binstall:
+cargo binstall scix-client
+```
+
+Verify your setup at any time with:
+
+```bash
+scix doctor
+```
 
 ## Prerequisites
 
@@ -30,14 +52,7 @@ export ADS_API_TOKEN="your-token-here"
 
 ## Quick Start: MCP
 
-Give your AI assistant access to the entire SciX database.
-
-### Install
-
-```bash
-cargo install scix-client --features cli
-# or: cargo binstall scix-client
-```
+Give your AI assistant access to the entire SciX database. (Install with any method from [Install](#install) above.)
 
 ### Automatic setup (recommended)
 
@@ -45,10 +60,10 @@ cargo install scix-client --features cli
 scix setup
 ```
 
-This detects your installed editors (Claude Code, Claude Desktop, Cursor, Zed), prompts for your API token, validates it, and writes the correct config for each one. Run it once and you're done.
+This detects your installed editors (Claude Code, Claude Desktop, Cursor, Zed, Gemini CLI, Codex CLI, Windsurf), prompts for your API token (offering to open the token page in your browser), validates it, and writes the correct config for each one. Run it once and you're done.
 
 Options:
-- `scix setup claude-code` — configure only Claude Code
+- `scix setup claude-code` — configure only one editor
 - `scix setup --yes` — non-interactive (uses env token, configures all detected editors)
 - `scix setup --skip-validation` — skip token validation
 
@@ -84,11 +99,28 @@ See [docs/mcp-server.md](docs/mcp-server.md) for Cursor, Zed, full tool referenc
 
 ---
 
+## Quick Start: Chat REPL
+
+Drive scix from any tool-use-capable LLM, with no MCP host required. Set one provider's API key and go.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."     # or OPENAI_API_KEY, GEMINI_API_KEY, OLLAMA_HOST
+export SCIX_API_TOKEN="your-ads-token"
+scix chat                                  # auto-detects provider
+
+# Or pick explicitly:
+scix chat --provider openai --model gpt-5
+scix chat --provider gemini --model gemini-2.5-pro
+scix chat --provider ollama --model llama3.1:70b
+```
+
+Inside the REPL, just ask questions. The model uses the same SciX tools the MCP server exposes (search, export, metrics, libraries, citation/reference networks, object name resolution, paper details).
+
+---
+
 ## Quick Start: CLI
 
 ```bash
-cargo install scix-client --features cli
-
 scix search 'first_author:"Perlmutter" supernova' --sort "citation_count desc"
 scix export 1999ApJ...517..565P --format bibtex
 scix cites 1999ApJ...517..565P --rows 50
