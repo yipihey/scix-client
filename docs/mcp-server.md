@@ -17,11 +17,20 @@ Once connected, you can ask your AI assistant things like:
 ## Installation
 
 ```bash
-# From crates.io (recommended)
+# One-line installer (prebuilt binary, no Rust toolchain)
+curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
+
+# From PyPI
+pip install scix-client          # or: uvx scix-client, pipx install scix-client
+
+# From crates.io
 cargo install scix-client --features cli
 
 # Pre-built binary (via cargo-binstall — no compile needed)
 cargo binstall scix-client
+
+# Docker
+docker pull ghcr.io/yipihey/scix-client
 
 # From source
 cargo build --features cli --release
@@ -55,6 +64,9 @@ scix setup claude-code         # Configure only Claude Code
 scix setup claude-desktop      # Configure only Claude Desktop
 scix setup cursor              # Configure only Cursor
 scix setup zed                 # Configure only Zed
+scix setup gemini-cli          # Configure only Gemini CLI
+scix setup codex-cli           # Configure only Codex CLI (OpenAI)
+scix setup windsurf            # Configure only Windsurf (Codeium)
 
 Flags:
   --skip-validation   Don't test the API token
