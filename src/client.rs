@@ -44,6 +44,9 @@ impl SciXClient {
     }
 
     /// Create a client from the `SCIX_API_TOKEN` (or `ADS_API_TOKEN`) environment variable.
+    ///
+    /// If `SCIX_API_URL` is set and non-empty, it overrides the default API base
+    /// URL — useful if SciX migrates off the `adsabs.harvard.edu` host.
     pub fn from_env() -> Result<Self> {
         let token = std::env::var("SCIX_API_TOKEN")
             .or_else(|_| std::env::var("ADS_API_TOKEN"))
@@ -51,7 +54,13 @@ impl SciXClient {
         if token.is_empty() {
             return Err(SciXError::AuthRequired);
         }
-        Ok(Self::new(token))
+        let mut client = Self::new(token);
+        if let Ok(url) = std::env::var("SCIX_API_URL") {
+            if !url.is_empty() {
+                client.base_url = url;
+            }
+        }
+        Ok(client)
     }
 
     /// Override the base URL (useful for testing).

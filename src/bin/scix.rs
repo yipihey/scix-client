@@ -78,6 +78,14 @@ mod cli {
             /// Bibcodes
             bibcodes: Vec<String>,
         },
+        /// Retrieve the full text of a paper (abstract + open-access body)
+        Fulltext {
+            /// Bibcode
+            bibcode: String,
+            /// Maximum body characters before truncating (0 = unlimited)
+            #[arg(short, long, default_value = "40000")]
+            max_chars: usize,
+        },
         /// Resolve free-text references to bibcodes
         Resolve {
             /// Reference strings
@@ -327,6 +335,35 @@ mod cli {
                 let refs: Vec<&str> = bibcodes.iter().map(|s| s.as_str()).collect();
                 let metrics = client.metrics(&refs).await?;
                 println!("{}", serde_json::to_string_pretty(&metrics)?);
+            }
+
+            Commands::Fulltext { bibcode, max_chars } => {
+                let ft = client.fulltext(&bibcode, max_chars).await?;
+                match cli.output {
+                    OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&ft)?),
+                    OutputFormat::Table => {
+                        println!("{}\n", ft.title);
+                        if let Some(abs) = &ft.abstract_text {
+                            println!("Abstract:\n{}\n", abs);
+                        }
+                        match &ft.body {
+                            Some(body) => {
+                                let source =
+                                    ft.body_source.as_deref().unwrap_or("open-access source");
+                                println!("Full text (source: {}):\n{}", source, body);
+                                if ft.truncated {
+                                    println!("\n[truncated — raise --max-chars for more]");
+                                }
+                            }
+                            None => {
+                                println!("No open-access full text retrievable. Access links:");
+                                for link in &ft.sources {
+                                    println!("  {} — {}", link.label, link.url);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Commands::Resolve { references } => {

@@ -91,6 +91,7 @@ cargo install scix-client --features cli
 
 scix search 'first_author:"Perlmutter" supernova' --sort "citation_count desc"
 scix export 1999ApJ...517..565P --format bibtex
+scix fulltext 1999ApJ...517..565P            # read the abstract + open-access body
 scix cites 1999ApJ...517..565P --rows 50
 scix libraries create "Thesis Papers" --description "Key references"
 ```
@@ -122,7 +123,7 @@ See [docs/python.md](docs/python.md) for the full API reference including v0.2.0
 
 ```toml
 [dependencies]
-scix-client = "0.3"
+scix-client = "0.4"
 ```
 
 ```rust

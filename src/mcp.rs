@@ -45,7 +45,8 @@ pub async fn run_server(client: SciXClient) -> crate::error::Result<()> {
             "tools/list" => handle_tools_list(&id),
             "tools/call" => handle_tool_call(&client, &id, &request["params"]).await,
             "resources/list" => handle_resources_list(&id),
-            "resources/read" => handle_resource_read(&id, &request["params"]),
+            "resources/templates/list" => handle_resource_templates_list(&id),
+            "resources/read" => handle_resource_read(&client, &id, &request["params"]).await,
             "notifications/initialized" | "notifications/cancelled" => continue,
             _ => json!({
                 "jsonrpc": "2.0",
@@ -116,31 +117,108 @@ fn handle_resources_list(id: &Value) -> Value {
     })
 }
 
-fn handle_resource_read(id: &Value, params: &Value) -> Value {
-    let uri = params["uri"].as_str().unwrap_or("");
-    let content = match uri {
-        "scix://fields" => FIELDS_REFERENCE.to_string(),
-        "scix://syntax" => SYNTAX_REFERENCE.to_string(),
-        _ => {
-            return json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "error": { "code": -32602, "message": format!("Unknown resource: {}", uri) }
-            });
-        }
-    };
-
+fn handle_resource_templates_list(id: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": {
-            "contents": [{
-                "uri": uri,
-                "mimeType": "text/plain",
-                "text": content
-            }]
+            "resourceTemplates": [
+                {
+                    "uriTemplate": "scix://paper/{bibcode}/{part}",
+                    "name": "SciX Paper (document-as-directory)",
+                    "description": "Navigate a paper like a directory. {part} is one of: metadata, abstract, fulltext, references, citations, links. Example: scix://paper/2016PhRvL.116f1102A/abstract",
+                    "mimeType": "text/markdown"
+                }
+            ]
         }
     })
+}
+
+async fn handle_resource_read(client: &SciXClient, id: &Value, params: &Value) -> Value {
+    let uri = params["uri"].as_str().unwrap_or("");
+    match read_resource(client, uri).await {
+        Ok((mime, content)) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": mime,
+                    "text": content
+                }]
+            }
+        }),
+        Err(e) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32602, "message": e.to_string() }
+        }),
+    }
+}
+
+/// Resolve a `scix://` resource URI to a `(mime_type, content)` pair.
+///
+/// Supports the static `scix://fields` and `scix://syntax` references plus the
+/// `scix://paper/{bibcode}/{part}` document-as-directory layout.
+async fn read_resource(client: &SciXClient, uri: &str) -> Result<(String, String), SciXError> {
+    match uri {
+        "scix://fields" => Ok(("text/plain".into(), FIELDS_REFERENCE.to_string())),
+        "scix://syntax" => Ok(("text/plain".into(), SYNTAX_REFERENCE.to_string())),
+        _ => {
+            let (bibcode, part) = parse_paper_uri(uri)
+                .ok_or_else(|| SciXError::NotFound(format!("Unknown resource: {}", uri)))?;
+
+            let content = match part {
+                "metadata" => format_paper_detail(&fetch_paper_detail(client, bibcode).await?),
+                "abstract" => {
+                    let paper = fetch_paper_detail(client, bibcode).await?;
+                    paper
+                        .abstract_text
+                        .unwrap_or_else(|| "No abstract available.".to_string())
+                }
+                "fulltext" => {
+                    let ft = client
+                        .fulltext(bibcode, crate::fulltext::DEFAULT_MAX_CHARS)
+                        .await?;
+                    format_fulltext(&ft)
+                }
+                "references" => {
+                    let results = client.references(bibcode, 50).await?;
+                    format_search_results(&results, 0)
+                }
+                "citations" => {
+                    let results = client.citations(bibcode, 50).await?;
+                    format_search_results(&results, 0)
+                }
+                "links" => {
+                    let links = client.resolve_links(bibcode, None).await?;
+                    serde_json::to_string_pretty(&links)
+                        .map_err(|e| SciXError::Parse(e.to_string()))?
+                }
+                other => {
+                    return Err(SciXError::InvalidQuery(format!(
+                        "Unknown paper part '{}'. Use: metadata, abstract, fulltext, references, citations, links",
+                        other
+                    )));
+                }
+            };
+
+            Ok(("text/markdown".into(), content))
+        }
+    }
+}
+
+/// Parse a `scix://paper/{bibcode}/{part}` URI into its bibcode and part.
+///
+/// Bibcodes and parts contain no `/`, so the final segment is the part and the
+/// remainder is the bibcode.
+fn parse_paper_uri(uri: &str) -> Option<(&str, &str)> {
+    let rest = uri.strip_prefix("scix://paper/")?;
+    let (bibcode, part) = rest.rsplit_once('/')?;
+    if bibcode.is_empty() || part.is_empty() {
+        return None;
+    }
+    Some((bibcode, part))
 }
 
 async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Value {
@@ -160,6 +238,7 @@ async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Va
         "scix_resolve_reference" => tool_resolve_reference(client, args).await,
         "scix_resolve_links" => tool_resolve_links(client, args).await,
         "scix_get_paper" => tool_get_paper(client, args).await,
+        "scix_fulltext" => tool_fulltext(client, args).await,
         _ => Err(SciXError::Config(format!("Unknown tool: {}", tool_name))),
     };
 
@@ -515,16 +594,42 @@ async fn tool_get_paper(client: &SciXClient, args: &Value) -> Result<String, Sci
         .as_str()
         .ok_or_else(|| SciXError::InvalidQuery("'bibcode' required".into()))?;
 
+    let paper = fetch_paper_detail(client, bibcode).await?;
+    Ok(format_paper_detail(&paper))
+}
+
+async fn tool_fulltext(client: &SciXClient, args: &Value) -> Result<String, SciXError> {
+    let bibcode = args["bibcode"]
+        .as_str()
+        .ok_or_else(|| SciXError::InvalidQuery("'bibcode' required".into()))?;
+    let max_chars = args["max_chars"]
+        .as_u64()
+        .map(|n| n as usize)
+        .unwrap_or(crate::fulltext::DEFAULT_MAX_CHARS);
+
+    let ft = client.fulltext(bibcode, max_chars).await?;
+    Ok(format_fulltext(&ft))
+}
+
+/// Fetch a single paper with the rich field set, erroring if not found.
+async fn fetch_paper_detail(
+    client: &SciXClient,
+    bibcode: &str,
+) -> Result<crate::types::Paper, SciXError> {
     let query = format!("identifier:{}", bibcode);
     let results = client
         .search_with_options(&query, RICH_FIELDS, None, 1, 0)
         .await?;
 
-    if results.papers.is_empty() {
-        return Err(SciXError::NotFound(format!("Paper not found: {}", bibcode)));
-    }
+    results
+        .papers
+        .into_iter()
+        .next()
+        .ok_or_else(|| SciXError::NotFound(format!("Paper not found: {}", bibcode)))
+}
 
-    let paper = &results.papers[0];
+/// Format a paper's rich metadata as Markdown.
+fn format_paper_detail(paper: &crate::types::Paper) -> String {
     let mut out = String::new();
 
     out.push_str(&format!("# {}\n\n", paper.title));
@@ -586,7 +691,52 @@ async fn tool_get_paper(client: &SciXClient, args: &Value) -> Result<String, Sci
 
     out.push_str(&format!("\n**ADS:** {}\n", paper.url));
 
-    Ok(out)
+    out
+}
+
+/// Format a [`FullText`] result as Markdown: metadata, abstract, body (or a
+/// fallback note), and access links.
+fn format_fulltext(ft: &crate::types::FullText) -> String {
+    let mut out = format!("# {}\n\n", ft.title);
+    out.push_str(&format!("**Bibcode:** {}\n", ft.bibcode));
+    if let Some(arxiv) = &ft.arxiv_id {
+        out.push_str(&format!("**arXiv:** {}\n", arxiv));
+    }
+    out.push_str(&format!(
+        "**Open access:** {}\n",
+        if ft.open_access { "yes" } else { "unknown/no" }
+    ));
+
+    if let Some(abstract_text) = &ft.abstract_text {
+        out.push_str(&format!("\n## Abstract\n{}\n", abstract_text));
+    }
+
+    match &ft.body {
+        Some(body) => {
+            let source = ft.body_source.as_deref().unwrap_or("open-access source");
+            out.push_str(&format!(
+                "\n## Full text\n_Source: {}_\n\n{}\n",
+                source, body
+            ));
+            if ft.truncated {
+                out.push_str("\n_[Full text truncated. Request a larger max_chars for more.]_\n");
+            }
+        }
+        None => {
+            out.push_str(
+                "\n## Full text\n_No open-access body could be retrieved inline. Use the access links below._\n",
+            );
+        }
+    }
+
+    if !ft.sources.is_empty() {
+        out.push_str("\n## Sources\n");
+        for link in &ft.sources {
+            out.push_str(&format!("- [{}]({})\n", link.label, link.url));
+        }
+    }
+
+    out
 }
 
 // --- Formatting helpers ---
@@ -877,6 +1027,24 @@ fn tool_definitions() -> Value {
                 "idempotentHint": true,
                 "openWorldHint": true
             }
+        },
+        {
+            "name": "scix_fulltext",
+            "description": "Retrieve the full text of a paper for reading. Returns the abstract plus the open-access body (fetched from arXiv when available), along with access links. Use this when you need to read or analyze a paper's contents, not just its metadata.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bibcode": { "type": "string", "description": "Paper bibcode" },
+                    "max_chars": { "type": "integer", "description": "Maximum body characters to return before truncating (default 40000, 0 = unlimited)", "default": 40000 }
+                },
+                "required": ["bibcode"]
+            },
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": true
+            }
         }
     ])
 }
@@ -950,7 +1118,7 @@ Sort options:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Author, Library, Paper, SearchResponse};
+    use crate::types::{Author, Library, Paper, PdfLink, SearchResponse};
 
     fn make_paper(bibcode: &str, title: &str, authors: &[&str], year: u16) -> Paper {
         Paper {
@@ -1113,6 +1281,77 @@ mod tests {
     fn test_format_library_list_empty() {
         let output = format_library_list(&[]);
         assert_eq!(output, "No libraries found.");
+    }
+
+    #[test]
+    fn test_parse_paper_uri_valid() {
+        assert_eq!(
+            parse_paper_uri("scix://paper/2016PhRvL.116f1102A/abstract"),
+            Some(("2016PhRvL.116f1102A", "abstract"))
+        );
+        assert_eq!(
+            parse_paper_uri("scix://paper/2016PhRvL.116f1102A/fulltext"),
+            Some(("2016PhRvL.116f1102A", "fulltext"))
+        );
+    }
+
+    #[test]
+    fn test_parse_paper_uri_rejects_non_paper() {
+        assert_eq!(parse_paper_uri("scix://fields"), None);
+        assert_eq!(parse_paper_uri("scix://paper/onlybibcode"), None);
+        assert_eq!(parse_paper_uri("scix://paper//abstract"), None);
+        assert_eq!(parse_paper_uri("scix://paper/bibcode/"), None);
+    }
+
+    #[test]
+    fn test_format_fulltext_with_body() {
+        let ft = crate::types::FullText {
+            bibcode: "2016PhRvL.116f1102A".to_string(),
+            title: "Observation of Gravitational Waves".to_string(),
+            abstract_text: Some("We report the observation...".to_string()),
+            arxiv_id: Some("1602.03837".to_string()),
+            open_access: true,
+            sources: vec![PdfLink {
+                url: "https://arxiv.org/pdf/1602.03837.pdf".to_string(),
+                link_type: crate::types::PdfLinkType::ArXiv,
+                label: "arXiv PDF".to_string(),
+            }],
+            body: Some("Introduction. The body text.".to_string()),
+            body_source: Some("arXiv HTML (https://arxiv.org/html/1602.03837)".to_string()),
+            truncated: true,
+        };
+
+        let out = format_fulltext(&ft);
+        assert!(out.contains("# Observation of Gravitational Waves"));
+        assert!(out.contains("**arXiv:** 1602.03837"));
+        assert!(out.contains("## Abstract"));
+        assert!(out.contains("## Full text"));
+        assert!(out.contains("The body text."));
+        assert!(out.contains("truncated"));
+        assert!(out.contains("arXiv PDF"));
+    }
+
+    #[test]
+    fn test_format_fulltext_no_body_falls_back_to_links() {
+        let ft = crate::types::FullText {
+            bibcode: "2016PhRvL.116f1102A".to_string(),
+            title: "A Paper".to_string(),
+            abstract_text: None,
+            arxiv_id: None,
+            open_access: false,
+            sources: vec![PdfLink {
+                url: "https://doi.org/10.1/x".to_string(),
+                link_type: crate::types::PdfLinkType::Publisher,
+                label: "Publisher".to_string(),
+            }],
+            body: None,
+            body_source: None,
+            truncated: false,
+        };
+
+        let out = format_fulltext(&ft);
+        assert!(out.contains("No open-access body"));
+        assert!(out.contains("Publisher"));
     }
 
     #[test]

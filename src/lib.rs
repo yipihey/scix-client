@@ -45,6 +45,7 @@
 pub mod client;
 pub mod error;
 pub mod export;
+pub mod fulltext;
 pub mod libraries;
 pub mod links;
 pub mod metrics;

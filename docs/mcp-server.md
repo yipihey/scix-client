@@ -155,12 +155,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ## Available Tools
 
-12 tools are exposed over MCP:
+13 tools are exposed over MCP:
 
 | Tool | Description | Read-only |
 |------|-------------|-----------|
 | `scix_search` | Full-text search with SciX query syntax | Yes |
 | `scix_get_paper` | Detailed metadata for a single paper (abstract, affiliations, keywords, links) | Yes |
+| `scix_fulltext` | Read a paper's full text — abstract plus open-access body (from arXiv) | Yes |
 | `scix_bigquery` | Search within a set of known bibcodes | Yes |
 | `scix_export` | Export in 17 citation formats (BibTeX, RIS, AASTeX, ...) | Yes |
 | `scix_metrics` | h-index, g-index, citation counts, indicators | Yes |
@@ -191,6 +192,15 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | `bibcode` | string | Yes | Paper bibcode |
 
 Returns title, authors, year, publication, abstract, DOI, arXiv ID, citation count, properties, and links.
+
+### scix_fulltext
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bibcode` | string | Yes | Paper bibcode |
+| `max_chars` | integer | No | Max body characters before truncating (default 40000, 0 = unlimited) |
+
+Returns the abstract plus the open-access full-text body. Body text is fetched from arXiv's native HTML rendering (falling back to ar5iv) when an arXiv preprint exists; for papers without an open-access copy, `body` is empty and the response lists access links instead. Use this when you need to read or analyze a paper's contents rather than just its metadata.
 
 ### scix_bigquery
 
@@ -271,15 +281,33 @@ Returns title, authors, year, publication, abstract, DOI, arXiv ID, citation cou
 
 ## MCP Resources
 
-Two read-only resources are available:
+Two static read-only resources are available:
 
 | URI | Content |
 |-----|---------|
 | `scix://fields` | Searchable and returnable field names |
 | `scix://syntax` | Query syntax quick reference |
 
+### Paper as a directory
+
+Papers are also exposed as a navigable resource tree (advertised via
+`resources/templates/list`), so an agent can browse a paper like a directory
+instead of calling a tool for each facet:
+
+| URI template | Content |
+|--------------|---------|
+| `scix://paper/{bibcode}/metadata` | Rich metadata (same as `scix_get_paper`) |
+| `scix://paper/{bibcode}/abstract` | Abstract text |
+| `scix://paper/{bibcode}/fulltext` | Open-access full-text body (same as `scix_fulltext`) |
+| `scix://paper/{bibcode}/references` | Papers this paper references |
+| `scix://paper/{bibcode}/citations` | Papers that cite this paper |
+| `scix://paper/{bibcode}/links` | Resolved full-text / data / reference links |
+
+Example: `scix://paper/2016PhRvL.116f1102A/abstract`.
+
 ## Tips for Best Results
 
+- **Use `scix_fulltext`** (or `scix://paper/{bibcode}/fulltext`) when you need to actually read or analyze a paper's body, not just its metadata. It returns the open-access text from arXiv where available.
 - **Use `scix_get_paper`** when you need the abstract, affiliations, or full metadata for a single paper — it returns richer fields than `scix_search`.
 - **Paginate with `start`** — if a search returns 500 results, use `start=10`, `start=20`, etc. to page through them.
 - **Use `scix_citation_helper`** to find bibliography gaps — give it the bibcodes from your paper's reference list and it returns frequently co-cited papers you haven't included.

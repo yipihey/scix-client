@@ -206,6 +206,31 @@ pub struct SearchResponse {
     pub num_found: u64,
 }
 
+/// Full-text view of a paper: metadata, access links, and (when openly
+/// available) the body text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+pub struct FullText {
+    /// ADS bibcode (primary identifier).
+    pub bibcode: String,
+    /// Paper title.
+    pub title: String,
+    /// Abstract text, if available.
+    pub abstract_text: Option<String>,
+    /// arXiv ID, if the paper has an arXiv preprint.
+    pub arxiv_id: Option<String>,
+    /// Whether ADS marks the paper as open access.
+    pub open_access: bool,
+    /// Resolved access links (arXiv, publisher, ADS scan), ordered by priority.
+    pub sources: Vec<PdfLink>,
+    /// Extracted full-text body, when an open-access rendering was retrievable.
+    pub body: Option<String>,
+    /// Human-readable description of where `body` came from.
+    pub body_source: Option<String>,
+    /// Whether `body` was truncated to fit the requested character limit.
+    pub truncated: bool,
+}
+
 /// Citation export formats supported by ADS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "python", pyo3::pyclass(eq))]

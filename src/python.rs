@@ -70,6 +70,17 @@ impl Paper {
 }
 
 #[pymethods]
+impl FullText {
+    fn __repr__(&self) -> String {
+        format!(
+            "FullText(bibcode='{}', has_body={})",
+            self.bibcode,
+            self.body.is_some()
+        )
+    }
+}
+
+#[pymethods]
 impl SearchResponse {
     fn __repr__(&self) -> String {
         format!(
@@ -300,6 +311,17 @@ impl PySciXClient {
     fn coreads(&self, bibcode: &str, rows: u32) -> PyResult<SearchResponse> {
         self.runtime
             .block_on(self.client.coreads(bibcode, rows))
+            .map_err(to_py_err)
+    }
+
+    /// Retrieve the full text of a paper (abstract + open-access body).
+    ///
+    /// Returns a FullText object. Body text is fetched from arXiv when an
+    /// open-access HTML rendering is available; otherwise use `.sources`.
+    #[pyo3(signature = (bibcode, max_chars=40000))]
+    fn fulltext(&self, bibcode: &str, max_chars: usize) -> PyResult<FullText> {
+        self.runtime
+            .block_on(self.client.fulltext(bibcode, max_chars))
             .map_err(to_py_err)
     }
 
@@ -779,6 +801,7 @@ pub fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PdfLink>()?;
     m.add_class::<PdfLinkType>()?;
     m.add_class::<SearchResponse>()?;
+    m.add_class::<FullText>()?;
     m.add_class::<ExportFormat>()?;
     m.add_class::<Metrics>()?;
     m.add_class::<BasicStats>()?;

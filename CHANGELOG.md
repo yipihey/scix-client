@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 — 2026-06-11
+
+### Full-text reading (Paper2Agent / Paperclip integration, phase 1)
+- New `scix_fulltext` MCP tool, `scix fulltext` CLI command, and Python `client.fulltext()` method — retrieve a paper's abstract plus its open-access body text, fetched from arXiv's native HTML (falling back to ar5iv). Closes the "read, don't just cite" gap relative to Paperclip while keeping ADS as the authoritative metadata/citation source.
+- New `FullText` type exposing `body`, `body_source`, `sources` (access links), `open_access`, and `truncated`.
+
+### Document-as-directory resources
+- Papers are now navigable as a resource tree via `resources/templates/list`: `scix://paper/{bibcode}/{part}` where `part` is one of `metadata`, `abstract`, `fulltext`, `references`, `citations`, `links`.
+
+### Configuration
+- `from_env()` now honors a `SCIX_API_URL` environment variable to override the API base URL, easing any future SciX endpoint migration.
+
+### Notes
+- See `docs/integration-paper2agent-paperclip.md` for the integration strategy and roadmap.
+
 ## 0.3.1 — 2026-03-05
 
 ### Enhancements
