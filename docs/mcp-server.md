@@ -155,13 +155,14 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ## Available Tools
 
-13 tools are exposed over MCP:
+14 tools are exposed over MCP:
 
 | Tool | Description | Read-only |
 |------|-------------|-----------|
 | `scix_search` | Full-text search with SciX query syntax | Yes |
 | `scix_get_paper` | Detailed metadata for a single paper (abstract, affiliations, keywords, links) | Yes |
-| `scix_fulltext` | Read a paper's full text — abstract plus open-access body (from arXiv) | Yes |
+| `scix_fulltext` | Read a paper's full text — abstract plus open-access body (from arXiv), whole or by section | Yes |
+| `scix_grep` | Regex search across the full text of many papers at once (bibcodes or a query) | Yes |
 | `scix_bigquery` | Search within a set of known bibcodes | Yes |
 | `scix_export` | Export in 17 citation formats (BibTeX, RIS, AASTeX, ...) | Yes |
 | `scix_metrics` | h-index, g-index, citation counts, indicators | Yes |
@@ -199,8 +200,25 @@ Returns title, authors, year, publication, abstract, DOI, arXiv ID, citation cou
 |-----------|------|----------|-------------|
 | `bibcode` | string | Yes | Paper bibcode |
 | `max_chars` | integer | No | Max body characters before truncating (default 40000, 0 = unlimited) |
+| `section` | string | No | Retrieve only this section: a 1-based index (`3`) or title substring (`method`) |
 
-Returns the abstract plus the open-access full-text body. Body text is fetched from arXiv's native HTML rendering (falling back to ar5iv) when an arXiv preprint exists; for papers without an open-access copy, `body` is empty and the response lists access links instead. Use this when you need to read or analyze a paper's contents rather than just its metadata.
+Returns the abstract plus the open-access full-text body and a numbered section list. Body text is fetched from arXiv's native HTML rendering (falling back to ar5iv) when an arXiv preprint exists; for papers without an open-access copy, `body` is empty and the response lists access links instead. Use this when you need to read or analyze a paper's contents rather than just its metadata.
+
+### scix_grep
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | string | Yes | Regex pattern (case-insensitive by default) |
+| `bibcodes` | array[string] | One of | Bibcodes to search |
+| `query` | string | One of | ADS search query whose results are grepped |
+| `rows` | integer | No | Max papers when using `query` (default 10, max 50) |
+| `case_sensitive` | boolean | No | Match case-sensitively (default false) |
+| `max_matches` | integer | No | Max matches per paper (default 5) |
+| `context_chars` | integer | No | Characters of context around each match (default 120) |
+
+Fans a regex search across many papers in one call — Paperclip-style map ergonomics on top of ADS. Per paper it searches the open-access full text (with section attribution) when retrievable, falling back to the abstract; the `searched` field reports which. Passing `query` instead of `bibcodes` chains the grep directly onto a search result set.
+
+Example: extract reported H0 values across a result set with `query: "title:\"hubble constant\" year:2020-2024 property:openaccess"`, `pattern: "H_?0\\s*=\\s*\\d+"`.
 
 ### scix_bigquery
 
@@ -299,15 +317,18 @@ instead of calling a tool for each facet:
 | `scix://paper/{bibcode}/metadata` | Rich metadata (same as `scix_get_paper`) |
 | `scix://paper/{bibcode}/abstract` | Abstract text |
 | `scix://paper/{bibcode}/fulltext` | Open-access full-text body (same as `scix_fulltext`) |
+| `scix://paper/{bibcode}/sections` | Numbered list of full-text sections |
+| `scix://paper/{bibcode}/sections/{selector}` | One section, by 1-based index or title substring |
 | `scix://paper/{bibcode}/references` | Papers this paper references |
 | `scix://paper/{bibcode}/citations` | Papers that cite this paper |
 | `scix://paper/{bibcode}/links` | Resolved full-text / data / reference links |
 
-Example: `scix://paper/2016PhRvL.116f1102A/abstract`.
+Example: `scix://paper/2016PhRvL.116f1102A/sections/2`.
 
 ## Tips for Best Results
 
-- **Use `scix_fulltext`** (or `scix://paper/{bibcode}/fulltext`) when you need to actually read or analyze a paper's body, not just its metadata. It returns the open-access text from arXiv where available.
+- **Use `scix_fulltext`** (or `scix://paper/{bibcode}/fulltext`) when you need to actually read or analyze a paper's body, not just its metadata. It returns the open-access text from arXiv where available. Pass `section` to read one section at a time instead of the whole body.
+- **Use `scix_grep`** to extract specific values or statements from many papers at once — give it a query (or bibcodes) and a regex, and it returns context snippets per paper with section attribution. Much cheaper than reading each paper in full.
 - **Use `scix_get_paper`** when you need the abstract, affiliations, or full metadata for a single paper — it returns richer fields than `scix_search`.
 - **Paginate with `start`** — if a search returns 500 results, use `start=10`, `start=20`, etc. to page through them.
 - **Use `scix_citation_helper`** to find bibliography gaps — give it the bibcodes from your paper's reference list and it returns frequently co-cited papers you haven't included.

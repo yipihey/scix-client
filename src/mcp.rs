@@ -126,7 +126,7 @@ fn handle_resource_templates_list(id: &Value) -> Value {
                 {
                     "uriTemplate": "scix://paper/{bibcode}/{part}",
                     "name": "SciX Paper (document-as-directory)",
-                    "description": "Navigate a paper like a directory. {part} is one of: metadata, abstract, fulltext, references, citations, links. Example: scix://paper/2016PhRvL.116f1102A/abstract",
+                    "description": "Navigate a paper like a directory. {part} is one of: metadata, abstract, fulltext, references, citations, links, sections, sections/{selector}. Example: scix://paper/2016PhRvL.116f1102A/sections/2",
                     "mimeType": "text/markdown"
                 }
             ]
@@ -195,11 +195,20 @@ async fn read_resource(client: &SciXClient, uri: &str) -> Result<(String, String
                     serde_json::to_string_pretty(&links)
                         .map_err(|e| SciXError::Parse(e.to_string()))?
                 }
+                "sections" => {
+                    let sections = client.fulltext_sections(bibcode).await?;
+                    format_section_list(bibcode, &sections)
+                }
                 other => {
-                    return Err(SciXError::InvalidQuery(format!(
-                        "Unknown paper part '{}'. Use: metadata, abstract, fulltext, references, citations, links",
-                        other
-                    )));
+                    if let Some(selector) = other.strip_prefix("sections/") {
+                        let section = client.fulltext_section(bibcode, selector).await?;
+                        format!("## {}\n\n{}\n", section.title, section.text)
+                    } else {
+                        return Err(SciXError::InvalidQuery(format!(
+                            "Unknown paper part '{}'. Use: metadata, abstract, fulltext, references, citations, links, sections, sections/{{selector}}",
+                            other
+                        )));
+                    }
                 }
             };
 
@@ -210,12 +219,12 @@ async fn read_resource(client: &SciXClient, uri: &str) -> Result<(String, String
 
 /// Parse a `scix://paper/{bibcode}/{part}` URI into its bibcode and part.
 ///
-/// Bibcodes and parts contain no `/`, so the final segment is the part and the
-/// remainder is the bibcode.
+/// Bibcodes contain no `/`, so the first segment is the bibcode; the part may
+/// itself contain `/` (e.g., `sections/2`).
 fn parse_paper_uri(uri: &str) -> Option<(&str, &str)> {
     let rest = uri.strip_prefix("scix://paper/")?;
-    let (bibcode, part) = rest.rsplit_once('/')?;
-    if bibcode.is_empty() || part.is_empty() {
+    let (bibcode, part) = rest.split_once('/')?;
+    if bibcode.is_empty() || part.is_empty() || part.ends_with('/') {
         return None;
     }
     Some((bibcode, part))
@@ -239,6 +248,7 @@ async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Va
         "scix_resolve_links" => tool_resolve_links(client, args).await,
         "scix_get_paper" => tool_get_paper(client, args).await,
         "scix_fulltext" => tool_fulltext(client, args).await,
+        "scix_grep" => tool_grep(client, args).await,
         _ => Err(SciXError::Config(format!("Unknown tool: {}", tool_name))),
     };
 
@@ -607,8 +617,47 @@ async fn tool_fulltext(client: &SciXClient, args: &Value) -> Result<String, SciX
         .map(|n| n as usize)
         .unwrap_or(crate::fulltext::DEFAULT_MAX_CHARS);
 
+    if let Some(selector) = args["section"].as_str() {
+        let section = client.fulltext_section(bibcode, selector).await?;
+        return Ok(format!("## {}\n\n{}\n", section.title, section.text));
+    }
+
     let ft = client.fulltext(bibcode, max_chars).await?;
     Ok(format_fulltext(&ft))
+}
+
+async fn tool_grep(client: &SciXClient, args: &Value) -> Result<String, SciXError> {
+    let pattern = args["pattern"]
+        .as_str()
+        .ok_or_else(|| SciXError::InvalidQuery("'pattern' required".into()))?;
+
+    let mut opts = crate::batch::GrepOptions::default();
+    if let Some(cs) = args["case_sensitive"].as_bool() {
+        opts.case_sensitive = cs;
+    }
+    if let Some(m) = args["max_matches"].as_u64() {
+        opts.max_matches_per_paper = m as usize;
+    }
+    if let Some(c) = args["context_chars"].as_u64() {
+        opts.context_chars = c as usize;
+    }
+
+    let results = if let Some(arr) = args["bibcodes"].as_array() {
+        let bibcodes: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+        if bibcodes.is_empty() {
+            return Err(SciXError::InvalidQuery("'bibcodes' array is empty".into()));
+        }
+        client.grep(&bibcodes, pattern, &opts).await?
+    } else if let Some(query) = args["query"].as_str() {
+        let rows = args["rows"].as_u64().unwrap_or(10).min(50) as u32;
+        client.grep_query(query, rows, pattern, &opts).await?
+    } else {
+        return Err(SciXError::InvalidQuery(
+            "Provide either 'bibcodes' or 'query'".into(),
+        ));
+    };
+
+    Ok(format_grep_results(pattern, &results))
 }
 
 /// Fetch a single paper with the rich field set, erroring if not found.
@@ -729,11 +778,86 @@ fn format_fulltext(ft: &crate::types::FullText) -> String {
         }
     }
 
+    if !ft.section_titles.is_empty() {
+        out.push_str("\n## Sections\n");
+        for (i, title) in ft.section_titles.iter().enumerate() {
+            out.push_str(&format!("{}. {}\n", i + 1, title));
+        }
+        out.push_str(
+            "\n_Retrieve one section with the `section` parameter (index or title substring)._\n",
+        );
+    }
+
     if !ft.sources.is_empty() {
         out.push_str("\n## Sources\n");
         for link in &ft.sources {
             out.push_str(&format!("- [{}]({})\n", link.label, link.url));
         }
+    }
+
+    out
+}
+
+/// Format a paper's section list as Markdown.
+fn format_section_list(bibcode: &str, sections: &[crate::types::Section]) -> String {
+    let mut out = format!("Sections of {}:\n\n", bibcode);
+    for (i, section) in sections.iter().enumerate() {
+        out.push_str(&format!(
+            "{}. {} ({} chars)\n",
+            i + 1,
+            section.title,
+            section.text.chars().count()
+        ));
+    }
+    out.push_str(&format!(
+        "\n_Read one with scix://paper/{}/sections/{{index or title substring}}_\n",
+        bibcode
+    ));
+    out
+}
+
+/// Format grep results across papers as Markdown.
+fn format_grep_results(pattern: &str, results: &[crate::types::GrepResult]) -> String {
+    let with_matches = results.iter().filter(|r| !r.matches.is_empty()).count();
+    let mut out = format!(
+        "Grep '{}' across {} papers — {} with matches:\n\n",
+        pattern,
+        results.len(),
+        with_matches
+    );
+
+    for r in results {
+        let year = r.year.map(|y| y.to_string()).unwrap_or_default();
+        match r.searched.as_str() {
+            "not_found" => {
+                out.push_str(&format!("## {} — not found in ADS\n\n", r.bibcode));
+                continue;
+            }
+            "none" => {
+                out.push_str(&format!(
+                    "## {} — {} ({})\nNo searchable text available.\n\n",
+                    r.bibcode, r.title, year
+                ));
+                continue;
+            }
+            _ => {}
+        }
+
+        out.push_str(&format!(
+            "## {} — {} ({}) [searched: {}]\n",
+            r.bibcode, r.title, year, r.searched
+        ));
+        if r.matches.is_empty() {
+            out.push_str("No matches.\n\n");
+            continue;
+        }
+        for m in &r.matches {
+            match &m.section {
+                Some(section) => out.push_str(&format!("- ({}) {}\n", section, m.snippet)),
+                None => out.push_str(&format!("- {}\n", m.snippet)),
+            }
+        }
+        out.push('\n');
     }
 
     out
@@ -1030,14 +1154,38 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "scix_fulltext",
-            "description": "Retrieve the full text of a paper for reading. Returns the abstract plus the open-access body (fetched from arXiv when available), along with access links. Use this when you need to read or analyze a paper's contents, not just its metadata.",
+            "description": "Retrieve the full text of a paper for reading. Returns the abstract plus the open-access body (fetched from arXiv when available), along with access links and a section list. Pass 'section' to retrieve a single section instead. Use this when you need to read or analyze a paper's contents, not just its metadata.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "bibcode": { "type": "string", "description": "Paper bibcode" },
-                    "max_chars": { "type": "integer", "description": "Maximum body characters to return before truncating (default 40000, 0 = unlimited)", "default": 40000 }
+                    "max_chars": { "type": "integer", "description": "Maximum body characters to return before truncating (default 40000, 0 = unlimited)", "default": 40000 },
+                    "section": { "type": "string", "description": "Retrieve only this section: a 1-based index ('3') or a case-insensitive title substring ('method')" }
                 },
                 "required": ["bibcode"]
+            },
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": true
+            }
+        },
+        {
+            "name": "scix_grep",
+            "description": "Search a regex pattern across the full text of multiple papers at once. Give either explicit bibcodes or a search query to fan out over its results. Returns context snippets per paper with section attribution. Searches the open-access body (from arXiv) when available, falling back to the abstract. Ideal for extracting specific values, methods, or statements from a set of papers.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern (case-insensitive by default)" },
+                    "bibcodes": { "type": "array", "items": { "type": "string" }, "description": "Bibcodes to search (alternative to 'query')" },
+                    "query": { "type": "string", "description": "ADS search query whose results are grepped (alternative to 'bibcodes')" },
+                    "rows": { "type": "integer", "description": "Max papers when using 'query' (default 10, max 50)", "default": 10 },
+                    "case_sensitive": { "type": "boolean", "description": "Match case-sensitively (default false)", "default": false },
+                    "max_matches": { "type": "integer", "description": "Max matches per paper (default 5)", "default": 5 },
+                    "context_chars": { "type": "integer", "description": "Characters of context around each match (default 120)", "default": 120 }
+                },
+                "required": ["pattern"]
             },
             "annotations": {
                 "readOnlyHint": true,
@@ -1293,6 +1441,18 @@ mod tests {
             parse_paper_uri("scix://paper/2016PhRvL.116f1102A/fulltext"),
             Some(("2016PhRvL.116f1102A", "fulltext"))
         );
+        assert_eq!(
+            parse_paper_uri("scix://paper/2016PhRvL.116f1102A/sections"),
+            Some(("2016PhRvL.116f1102A", "sections"))
+        );
+        assert_eq!(
+            parse_paper_uri("scix://paper/2016PhRvL.116f1102A/sections/2"),
+            Some(("2016PhRvL.116f1102A", "sections/2"))
+        );
+        assert_eq!(
+            parse_paper_uri("scix://paper/2016PhRvL.116f1102A/sections/data analysis"),
+            Some(("2016PhRvL.116f1102A", "sections/data analysis"))
+        );
     }
 
     #[test]
@@ -1301,6 +1461,7 @@ mod tests {
         assert_eq!(parse_paper_uri("scix://paper/onlybibcode"), None);
         assert_eq!(parse_paper_uri("scix://paper//abstract"), None);
         assert_eq!(parse_paper_uri("scix://paper/bibcode/"), None);
+        assert_eq!(parse_paper_uri("scix://paper/bibcode/sections/"), None);
     }
 
     #[test]
@@ -1319,6 +1480,7 @@ mod tests {
             body: Some("Introduction. The body text.".to_string()),
             body_source: Some("arXiv HTML (https://arxiv.org/html/1602.03837)".to_string()),
             truncated: true,
+            section_titles: vec!["1 Introduction".to_string(), "2 Methods".to_string()],
         };
 
         let out = format_fulltext(&ft);
@@ -1329,6 +1491,9 @@ mod tests {
         assert!(out.contains("The body text."));
         assert!(out.contains("truncated"));
         assert!(out.contains("arXiv PDF"));
+        assert!(out.contains("## Sections"));
+        assert!(out.contains("1. 1 Introduction"));
+        assert!(out.contains("2. 2 Methods"));
     }
 
     #[test]
@@ -1347,11 +1512,77 @@ mod tests {
             body: None,
             body_source: None,
             truncated: false,
+            section_titles: Vec::new(),
         };
 
         let out = format_fulltext(&ft);
         assert!(out.contains("No open-access body"));
         assert!(out.contains("Publisher"));
+        assert!(!out.contains("## Sections"));
+    }
+
+    #[test]
+    fn test_format_grep_results() {
+        use crate::types::{GrepMatch, GrepResult};
+
+        let results = vec![
+            GrepResult {
+                bibcode: "2016PhRvL.116f1102A".to_string(),
+                title: "GW Paper".to_string(),
+                year: Some(2016),
+                searched: "fulltext".to_string(),
+                source: Some("arXiv HTML".to_string()),
+                matches: vec![GrepMatch {
+                    section: Some("3 Results".to_string()),
+                    snippet: "…the Hubble constant is 73…".to_string(),
+                }],
+            },
+            GrepResult {
+                bibcode: "1998AJ....116.1009R".to_string(),
+                title: "SN Paper".to_string(),
+                year: Some(1998),
+                searched: "abstract".to_string(),
+                source: None,
+                matches: vec![],
+            },
+            GrepResult {
+                bibcode: "BADBIBCODE".to_string(),
+                title: String::new(),
+                year: None,
+                searched: "not_found".to_string(),
+                source: None,
+                matches: vec![],
+            },
+        ];
+
+        let out = format_grep_results("hubble", &results);
+        assert!(out.contains("across 3 papers — 1 with matches"));
+        assert!(out.contains("GW Paper (2016) [searched: fulltext]"));
+        assert!(out.contains("- (3 Results) …the Hubble constant is 73…"));
+        assert!(out.contains("SN Paper (1998) [searched: abstract]"));
+        assert!(out.contains("No matches."));
+        assert!(out.contains("BADBIBCODE — not found in ADS"));
+    }
+
+    #[test]
+    fn test_format_section_list() {
+        use crate::types::Section;
+
+        let sections = vec![
+            Section {
+                title: "1 Introduction".to_string(),
+                text: "abc".to_string(),
+            },
+            Section {
+                title: "2 Methods".to_string(),
+                text: "defgh".to_string(),
+            },
+        ];
+
+        let out = format_section_list("2016PhRvL.116f1102A", &sections);
+        assert!(out.contains("Sections of 2016PhRvL.116f1102A"));
+        assert!(out.contains("1. 1 Introduction (3 chars)"));
+        assert!(out.contains("2. 2 Methods (5 chars)"));
     }
 
     #[test]

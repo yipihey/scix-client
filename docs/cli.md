@@ -114,6 +114,45 @@ scix similar 2023ApJ...123..456A
 scix cites 2023ApJ...123..456A --output json | jq '.papers | length'
 ```
 
+## Full Text (v0.4.0)
+
+```bash
+# Abstract + open-access body (fetched from arXiv), with a section list
+scix fulltext 2016PhRvL.116f1102A
+
+# Read one section (1-based index or title substring)
+scix fulltext 2016PhRvL.116f1102A --section 2
+scix fulltext 2016PhRvL.116f1102A --section methods
+
+# Cap the body length (0 = unlimited)
+scix fulltext 2016PhRvL.116f1102A --max-chars 10000
+
+# JSON output (FullText object with body, sources, section_titles)
+scix fulltext 2016PhRvL.116f1102A --output json
+```
+
+Papers without an open-access copy return access links instead of a body.
+
+## Grep Across Papers (v0.5.0)
+
+```bash
+# Regex search across the full text of explicit bibcodes
+scix grep "hubble constant" 2016PhRvL.116f1102A 1998AJ....116.1009R
+
+# Chain onto a search: grep the top results of a query
+scix grep 'H_?0\s*=' --query 'title:"hubble constant" year:2020-2024' --rows 20
+
+# Tune matching
+scix grep "dark energy" --query "author:Riess" --case-sensitive --max-matches 3 --context 200
+
+# JSON output for further processing
+scix grep "MCMC" --query "exoplanet atmospheres" --output json | jq '.[].matches'
+```
+
+Patterns are case-insensitive regexes by default. Each paper's open-access body
+is searched when retrievable (matches carry their section title), falling back
+to the abstract; the `searched` field reports which.
+
 ## Citation Metrics
 
 ```bash

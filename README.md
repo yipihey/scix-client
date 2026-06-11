@@ -92,6 +92,7 @@ cargo install scix-client --features cli
 scix search 'first_author:"Perlmutter" supernova' --sort "citation_count desc"
 scix export 1999ApJ...517..565P --format bibtex
 scix fulltext 1999ApJ...517..565P            # read the abstract + open-access body
+scix grep 'H_?0\s*=' --query 'title:"hubble constant" year:2020-2024'   # regex across many papers
 scix cites 1999ApJ...517..565P --rows 50
 scix libraries create "Thesis Papers" --description "Key references"
 ```

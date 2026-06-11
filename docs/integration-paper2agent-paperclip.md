@@ -65,15 +65,24 @@ its generated agents can call).
   onto ADS.
 - `SCIX_API_URL` override for forward-compatible host configuration.
 
-### Phase 2 — batch/agent ergonomics  (planned)
+### Phase 2 — batch/agent ergonomics  ✅ (0.5.0)
 
-- `map`/`reduce`-style helpers over a bibcode set, and a `--from`-equivalent
-  that chains a tool onto a previous result set, so an agent can fan an
-  extraction across a search result and synthesize. scix returns structured
-  chunks; the agent does the reasoning.
-- Richer full-text: section-addressable retrieval
-  (`scix://paper/{bibcode}/sections/...`) and figure/caption access where
-  open-access HTML exposes it.
+- `scix_grep` tool / `scix grep` CLI / `client.grep()` Python: fan a regex
+  search across the full text of many papers in one call — Paperclip's `grep`
+  primitive on top of ADS. One bigquery resolves metadata for the whole set;
+  open-access bodies are fetched concurrently (bounded at 4); matches come back
+  as context snippets with section attribution, falling back to the abstract
+  when no body is retrievable. scix returns structured chunks; the agent does
+  the reasoning.
+- `--from`-equivalent chaining: `scix_grep` accepts a `query` instead of
+  explicit bibcodes, fanning the extraction across a search's result set
+  (`grep_query` in the library).
+- Section-addressable retrieval: full text is split on HTML headings;
+  `scix_fulltext` takes a `section` selector (index or title substring), and
+  the resource tree gains `scix://paper/{bibcode}/sections` and
+  `scix://paper/{bibcode}/sections/{selector}`.
+- Still open for a later phase: figure/caption access where open-access HTML
+  exposes it, and a generic `map` helper for arbitrary tool fan-out.
 
 ### Phase 3 — interop & Paper2Agent alignment  (planned)
 

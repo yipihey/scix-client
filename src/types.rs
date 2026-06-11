@@ -229,6 +229,48 @@ pub struct FullText {
     pub body_source: Option<String>,
     /// Whether `body` was truncated to fit the requested character limit.
     pub truncated: bool,
+    /// Section titles found in the full text, in document order. Empty when no
+    /// body was retrieved or the document has no heading structure.
+    pub section_titles: Vec<String>,
+}
+
+/// A section of a paper's full text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+pub struct Section {
+    /// Section heading (e.g., "1 Introduction").
+    pub title: String,
+    /// Plain-text content of the section.
+    pub text: String,
+}
+
+/// A single grep match within a paper.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+pub struct GrepMatch {
+    /// Section the match was found in, when section structure is available.
+    pub section: Option<String>,
+    /// Matched text with surrounding context.
+    pub snippet: String,
+}
+
+/// Grep results for one paper.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "python", pyo3::pyclass(get_all))]
+pub struct GrepResult {
+    /// ADS bibcode.
+    pub bibcode: String,
+    /// Paper title (empty if the bibcode could not be resolved).
+    pub title: String,
+    /// Publication year.
+    pub year: Option<u16>,
+    /// What text was searched: "fulltext", "abstract", "none" (no text
+    /// available), or "not_found" (bibcode unknown to ADS).
+    pub searched: String,
+    /// Where the searched full text came from, when `searched` is "fulltext".
+    pub source: Option<String>,
+    /// Matches in document order.
+    pub matches: Vec<GrepMatch>,
 }
 
 /// Citation export formats supported by ADS.

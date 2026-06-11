@@ -8,7 +8,7 @@
 
 use crate::client::SciXClient;
 use crate::error::{Result, SciXError};
-use crate::types::FullText;
+use crate::types::{FullText, Paper, Section};
 
 /// Fields needed to assemble a [`FullText`]: metadata, abstract, sources, and
 /// the identifiers/properties used to locate open-access copies.
@@ -27,16 +27,7 @@ impl SciXClient {
     /// should fall back to the resolved `sources` links. `max_chars` bounds the
     /// returned body (0 means "no limit").
     pub async fn fulltext(&self, bibcode: &str, max_chars: usize) -> Result<FullText> {
-        let query = format!("identifier:{}", bibcode);
-        let results = self
-            .search_with_options(&query, FULLTEXT_FIELDS, None, 1, 0)
-            .await?;
-
-        let paper = results
-            .papers
-            .into_iter()
-            .next()
-            .ok_or_else(|| SciXError::NotFound(format!("Paper not found: {}", bibcode)))?;
+        let paper = self.fetch_paper_for_fulltext(bibcode).await?;
 
         let open_access = paper.properties.iter().any(|p| {
             p.eq_ignore_ascii_case("OPENACCESS") || p.eq_ignore_ascii_case("EPRINT_OPENACCESS")
@@ -52,23 +43,97 @@ impl SciXClient {
             body: None,
             body_source: None,
             truncated: false,
+            section_titles: Vec::new(),
         };
 
         if let Some(arxiv) = &paper.arxiv_id {
-            if let Some((text, source)) = self.fetch_arxiv_body(arxiv).await {
+            if let Some((html, text, source)) = self.fetch_arxiv_html(arxiv).await {
                 let (clipped, truncated) = clip_chars(&text, max_chars);
                 full.truncated = truncated;
                 full.body = Some(clipped);
                 full.body_source = Some(source);
+                full.section_titles = split_html_sections(&html)
+                    .into_iter()
+                    .map(|s| s.title)
+                    .collect();
             }
         }
 
         Ok(full)
     }
 
-    /// Try arXiv's native HTML rendering, then ar5iv, returning extracted text
-    /// and a human-readable source label on the first that yields real content.
-    async fn fetch_arxiv_body(&self, arxiv_id: &str) -> Option<(String, String)> {
+    /// Retrieve the full text of a paper split into sections.
+    ///
+    /// When the open-access HTML has no heading structure, the whole body is
+    /// returned as a single "Document" section. Errors if the paper has no
+    /// arXiv preprint or no HTML rendering is retrievable.
+    pub async fn fulltext_sections(&self, bibcode: &str) -> Result<Vec<Section>> {
+        let paper = self.fetch_paper_for_fulltext(bibcode).await?;
+        let arxiv = paper.arxiv_id.ok_or_else(|| {
+            SciXError::NotFound(format!(
+                "No arXiv preprint for {}; full text not retrievable",
+                bibcode
+            ))
+        })?;
+
+        let (html, text, _source) = self.fetch_arxiv_html(&arxiv).await.ok_or_else(|| {
+            SciXError::NotFound(format!(
+                "No open-access HTML rendering retrievable for {}",
+                bibcode
+            ))
+        })?;
+
+        let sections = split_html_sections(&html);
+        if sections.is_empty() {
+            return Ok(vec![Section {
+                title: "Document".to_string(),
+                text,
+            }]);
+        }
+        Ok(sections)
+    }
+
+    /// Retrieve a single section of a paper's full text.
+    ///
+    /// `selector` is either a 1-based section index ("3") or a case-insensitive
+    /// substring of the section title ("method").
+    pub async fn fulltext_section(&self, bibcode: &str, selector: &str) -> Result<Section> {
+        let sections = self.fulltext_sections(bibcode).await?;
+        select_section(&sections, selector).cloned().ok_or_else(|| {
+            let titles: Vec<String> = sections
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("{}. {}", i + 1, s.title))
+                .collect();
+            SciXError::NotFound(format!(
+                "No section matching '{}'. Available sections:\n{}",
+                selector,
+                titles.join("\n")
+            ))
+        })
+    }
+
+    /// Fetch a single paper with the fields needed for full-text assembly.
+    pub(crate) async fn fetch_paper_for_fulltext(&self, bibcode: &str) -> Result<Paper> {
+        let query = format!("identifier:{}", bibcode);
+        let results = self
+            .search_with_options(&query, FULLTEXT_FIELDS, None, 1, 0)
+            .await?;
+
+        results
+            .papers
+            .into_iter()
+            .next()
+            .ok_or_else(|| SciXError::NotFound(format!("Paper not found: {}", bibcode)))
+    }
+
+    /// Try arXiv's native HTML rendering, then ar5iv, returning the raw HTML,
+    /// extracted text, and a human-readable source label on the first that
+    /// yields real content.
+    pub(crate) async fn fetch_arxiv_html(
+        &self,
+        arxiv_id: &str,
+    ) -> Option<(String, String, String)> {
         let id = arxiv_id.trim_start_matches("arXiv:");
         let candidates = [
             (format!("https://arxiv.org/html/{}", id), "arXiv HTML"),
@@ -76,20 +141,21 @@ impl SciXClient {
         ];
 
         for (url, label) in candidates {
-            if let Some(text) = self.fetch_html_text(&url).await {
+            if let Some(html) = self.fetch_url(&url).await {
+                let text = strip_html(&html);
                 // Guard against "no HTML available" stub pages.
                 if text.len() > 500 {
-                    return Some((text, format!("{} ({})", label, url)));
+                    return Some((html, text, format!("{} ({})", label, url)));
                 }
             }
         }
         None
     }
 
-    /// Fetch a URL and strip it to plain text. Uses the shared HTTP client
-    /// directly — this is an external resource, so it bypasses the ADS base URL,
-    /// auth header, and rate limiter.
-    async fn fetch_html_text(&self, url: &str) -> Option<String> {
+    /// Fetch a URL body. Uses the shared HTTP client directly — this is an
+    /// external resource, so it bypasses the ADS base URL, auth header, and
+    /// rate limiter.
+    async fn fetch_url(&self, url: &str) -> Option<String> {
         let response = self
             .http
             .get(url)
@@ -102,9 +168,101 @@ impl SciXClient {
             return None;
         }
 
-        let html = response.text().await.ok()?;
-        Some(strip_html(&html))
+        response.text().await.ok()
     }
+}
+
+/// Select a section by 1-based index or case-insensitive title substring.
+pub fn select_section<'a>(sections: &'a [Section], selector: &str) -> Option<&'a Section> {
+    if let Ok(idx) = selector.trim().parse::<usize>() {
+        return (idx >= 1).then(|| sections.get(idx - 1)).flatten();
+    }
+    let needle = selector.to_lowercase();
+    sections
+        .iter()
+        .find(|s| s.title.to_lowercase().contains(&needle))
+}
+
+/// Split HTML into sections at `<h1>`–`<h6>` headings.
+///
+/// Content before the first heading (title block, authors, abstract in arXiv
+/// HTML) becomes a "Front matter" section when non-empty. Returns an empty list
+/// when the document has no headings.
+pub fn split_html_sections(html: &str) -> Vec<Section> {
+    let lower = html.to_ascii_lowercase();
+    let mut sections = Vec::new();
+    let mut cursor = 0;
+    let mut current_title: Option<String> = None;
+
+    while let Some(rel) = find_heading_open(&lower[cursor..]) {
+        let open_at = cursor + rel;
+        let level = lower.as_bytes()[open_at + 2] - b'0';
+
+        // Heading inner HTML runs from past the opening tag's '>' to '</hN>'.
+        let tag_end = match html[open_at..].find('>') {
+            Some(e) => open_at + e + 1,
+            None => break,
+        };
+        let close_tag = format!("</h{}>", level);
+        let (title_html, after_heading) = match lower[tag_end..].find(&close_tag) {
+            Some(c) => (&html[tag_end..tag_end + c], tag_end + c + close_tag.len()),
+            None => (&html[tag_end..tag_end], tag_end),
+        };
+
+        let body_text = strip_html(&html[cursor..open_at]);
+        push_section(&mut sections, current_title.take(), body_text);
+
+        let title = strip_html(title_html);
+        current_title = Some(if title.is_empty() {
+            "(untitled section)".to_string()
+        } else {
+            title
+        });
+        cursor = after_heading;
+    }
+
+    if current_title.is_none() {
+        // No headings at all.
+        return sections;
+    }
+
+    let body_text = strip_html(&html[cursor..]);
+    push_section(&mut sections, current_title, body_text);
+    sections
+}
+
+/// Append a pending section. Untitled leading content becomes "Front matter";
+/// sections with neither title nor text are dropped.
+fn push_section(sections: &mut Vec<Section>, title: Option<String>, text: String) {
+    match title {
+        Some(title) => sections.push(Section { title, text }),
+        None => {
+            if !text.is_empty() {
+                sections.push(Section {
+                    title: "Front matter".to_string(),
+                    text,
+                });
+            }
+        }
+    }
+}
+
+/// Find the byte offset of the next `<hN` heading open tag (N in 1..=6,
+/// followed by `>` or whitespace) in already-lowercased HTML.
+fn find_heading_open(lower: &str) -> Option<usize> {
+    let bytes = lower.as_bytes();
+    let mut i = 0;
+    while let Some(rel) = lower[i..].find("<h") {
+        let at = i + rel;
+        if at + 3 < bytes.len()
+            && (b'1'..=b'6').contains(&bytes[at + 2])
+            && (bytes[at + 3] == b'>' || bytes[at + 3].is_ascii_whitespace())
+        {
+            return Some(at);
+        }
+        i = at + 2;
+    }
+    None
 }
 
 /// Truncate `s` to at most `max_chars` characters (0 = unlimited), returning the
@@ -349,5 +507,72 @@ mod tests {
         let (clipped, truncated) = clip_chars("hello", 0);
         assert_eq!(clipped, "hello");
         assert!(!truncated);
+    }
+
+    #[test]
+    fn split_sections_basic() {
+        let html = "<title>Paper</title><p>Authors here</p>\
+                    <h2>1 Introduction</h2><p>Intro text.</p>\
+                    <h2>2 Methods</h2><p>Methods text.</p>";
+        let sections = split_html_sections(html);
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[0].title, "Front matter");
+        assert!(sections[0].text.contains("Authors here"));
+        assert_eq!(sections[1].title, "1 Introduction");
+        assert_eq!(sections[1].text, "Intro text.");
+        assert_eq!(sections[2].title, "2 Methods");
+        assert_eq!(sections[2].text, "Methods text.");
+    }
+
+    #[test]
+    fn split_sections_heading_attributes_and_inline_markup() {
+        let html = r#"<h2 class="ltx_title">1 <span>Intro</span>duction</h2><p>Body</p>"#;
+        let sections = split_html_sections(html);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "1 Introduction");
+        assert_eq!(sections[0].text, "Body");
+    }
+
+    #[test]
+    fn split_sections_no_headings_returns_empty() {
+        assert!(split_html_sections("<p>Just a paragraph</p>").is_empty());
+    }
+
+    #[test]
+    fn split_sections_ignores_non_heading_h_tags() {
+        // <header> and <html> start with "<h" but are not headings.
+        let html = "<html><header>top</header><h3>Real</h3><p>x</p></html>";
+        let sections = split_html_sections(html);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[1].title, "Real");
+    }
+
+    #[test]
+    fn select_section_by_index_and_substring() {
+        let sections = vec![
+            Section {
+                title: "1 Introduction".into(),
+                text: "a".into(),
+            },
+            Section {
+                title: "2 Data and Methods".into(),
+                text: "b".into(),
+            },
+        ];
+        assert_eq!(
+            select_section(&sections, "2").unwrap().title,
+            "2 Data and Methods"
+        );
+        assert_eq!(
+            select_section(&sections, "method").unwrap().title,
+            "2 Data and Methods"
+        );
+        assert_eq!(
+            select_section(&sections, "INTRO").unwrap().title,
+            "1 Introduction"
+        );
+        assert!(select_section(&sections, "0").is_none());
+        assert!(select_section(&sections, "3").is_none());
+        assert!(select_section(&sections, "conclusion").is_none());
     }
 }

@@ -150,6 +150,33 @@ for ref in resolved:
 objects = client.resolve_objects(["M31", "Crab Nebula"])
 ```
 
+## Full Text and Grep (v0.4.0 / v0.5.0)
+
+```python
+# Read a paper: abstract + open-access body (fetched from arXiv)
+ft = client.fulltext("2016PhRvL.116f1102A")
+print(ft.abstract_text)
+print(ft.section_titles)           # ["1 Introduction", "2 Methods", ...]
+if ft.body:
+    print(ft.body[:2000], ft.body_source)
+else:
+    print([(s.label, s.url) for s in ft.sources])  # access links fallback
+
+# Section-addressable retrieval
+sections = client.fulltext_sections("2016PhRvL.116f1102A")
+methods = client.fulltext_section("2016PhRvL.116f1102A", "method")
+
+# Grep a regex across many papers at once (case-insensitive by default)
+results = client.grep(r"H_?0\s*=", query='title:"hubble constant" year:2020-2024', rows=20)
+for r in results:
+    print(r.bibcode, r.searched)   # "fulltext", "abstract", "none", or "not_found"
+    for m in r.matches:
+        print(f"  ({m.section}) {m.snippet}")
+
+# Or with explicit bibcodes
+results = client.grep("dark energy", bibcodes=["2016PhRvL.116f1102A"], max_matches=3)
+```
+
 ## Sort Control
 
 ```python
@@ -173,6 +200,10 @@ All types are auto-exposed with read-only field access:
 | `Indicators` | `h`, `g`, `i10`, `i100`, `m`, `tori`, `riq`, `read10` |
 | `Sort` | `field`, `direction` |
 | `Library` | `id`, `name`, `description`, `num_documents` |
+| `FullText` | `bibcode`, `body`, `body_source`, `section_titles`, `sources`, `truncated` |
+| `Section` | `title`, `text` |
+| `GrepResult` | `bibcode`, `title`, `year`, `searched`, `source`, `matches` |
+| `GrepMatch` | `section`, `snippet` |
 
 ## Complete Method Reference
 
@@ -185,6 +216,15 @@ All types are auto-exposed with read-only field access:
 | `references` | `(bibcode: str, rows: int = 25) -> SearchResponse` |
 | `citations` | `(bibcode: str, rows: int = 25) -> SearchResponse` |
 | `similar` | `(bibcode: str, rows: int = 10) -> SearchResponse` |
+
+### Full Text & Grep
+
+| Method | Signature |
+|--------|-----------|
+| `fulltext` | `(bibcode: str, max_chars: int = 40000) -> FullText` |
+| `fulltext_sections` | `(bibcode: str) -> list[Section]` |
+| `fulltext_section` | `(bibcode: str, selector: str) -> Section` |
+| `grep` | `(pattern: str, bibcodes: list[str] = None, query: str = None, rows: int = 10, case_sensitive: bool = False, max_matches: int = 5, context_chars: int = 120) -> list[GrepResult]` |
 
 ### Export & Metrics
 

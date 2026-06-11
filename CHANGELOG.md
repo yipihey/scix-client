@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — 2026-06-11
+
+### Grep across papers (Paper2Agent / Paperclip integration, phase 2)
+- New `scix_grep` MCP tool, `scix grep` CLI command, and Python `client.grep()` — fan a regex search across the full text of many papers in one call, returning context snippets with section attribution. Searches the open-access body (from arXiv) when retrievable, falling back to the abstract; results report what was searched.
+- Query chaining: pass a search `query` instead of explicit bibcodes to grep directly over a result set (`grep_query` in the library) — the `--from` equivalent of Paperclip's pipeline model.
+- Metadata for the whole set is resolved in a single bigquery request; body fetches run concurrently (bounded at 4).
+- New `GrepResult`/`GrepMatch` types and `GrepOptions` (case sensitivity, per-paper match budget, context width).
+
+### Section-addressable full text
+- Full text is now split into sections on HTML headings: `FullText.section_titles`, Python `client.fulltext_sections()` / `client.fulltext_section()`, a `section` parameter on `scix_fulltext` and `scix fulltext --section` (1-based index or case-insensitive title substring).
+- New resources: `scix://paper/{bibcode}/sections` (list) and `scix://paper/{bibcode}/sections/{selector}` (one section).
+
+### Dependencies
+- Added `regex` for grep pattern matching.
+
 ## 0.4.0 — 2026-06-11
 
 ### Full-text reading (Paper2Agent / Paperclip integration, phase 1)

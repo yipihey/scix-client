@@ -81,6 +81,29 @@ impl FullText {
 }
 
 #[pymethods]
+impl Section {
+    fn __repr__(&self) -> String {
+        format!(
+            "Section(title='{}', chars={})",
+            self.title,
+            self.text.chars().count()
+        )
+    }
+}
+
+#[pymethods]
+impl GrepResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "GrepResult(bibcode='{}', searched='{}', matches={})",
+            self.bibcode,
+            self.searched,
+            self.matches.len()
+        )
+    }
+}
+
+#[pymethods]
 impl SearchResponse {
     fn __repr__(&self) -> String {
         format!(
@@ -323,6 +346,63 @@ impl PySciXClient {
         self.runtime
             .block_on(self.client.fulltext(bibcode, max_chars))
             .map_err(to_py_err)
+    }
+
+    /// Retrieve the full text of a paper split into sections.
+    fn fulltext_sections(&self, bibcode: &str) -> PyResult<Vec<Section>> {
+        self.runtime
+            .block_on(self.client.fulltext_sections(bibcode))
+            .map_err(to_py_err)
+    }
+
+    /// Retrieve a single section of a paper's full text.
+    ///
+    /// `selector` is a 1-based index ("3") or a case-insensitive title
+    /// substring ("method").
+    fn fulltext_section(&self, bibcode: &str, selector: &str) -> PyResult<Section> {
+        self.runtime
+            .block_on(self.client.fulltext_section(bibcode, selector))
+            .map_err(to_py_err)
+    }
+
+    /// Grep a regex pattern across the full text of multiple papers.
+    ///
+    /// Give either explicit `bibcodes` or a search `query` to fan out over its
+    /// results. Searches the open-access body when available, falling back to
+    /// the abstract.
+    #[pyo3(signature = (pattern, bibcodes=None, query=None, rows=10, case_sensitive=false, max_matches=5, context_chars=120))]
+    #[allow(clippy::too_many_arguments)]
+    fn grep(
+        &self,
+        pattern: &str,
+        bibcodes: Option<Vec<String>>,
+        query: Option<&str>,
+        rows: u32,
+        case_sensitive: bool,
+        max_matches: usize,
+        context_chars: usize,
+    ) -> PyResult<Vec<GrepResult>> {
+        let opts = crate::batch::GrepOptions {
+            case_sensitive,
+            max_matches_per_paper: max_matches,
+            context_chars,
+        };
+        let result = match (bibcodes, query) {
+            (Some(bibs), _) if !bibs.is_empty() => {
+                let refs: Vec<&str> = bibs.iter().map(|s| s.as_str()).collect();
+                self.runtime
+                    .block_on(self.client.grep(&refs, pattern, &opts))
+            }
+            (_, Some(q)) => self
+                .runtime
+                .block_on(self.client.grep_query(q, rows, pattern, &opts)),
+            _ => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Provide either bibcodes or query",
+                ))
+            }
+        };
+        result.map_err(to_py_err)
     }
 
     // -- Export endpoints --
@@ -802,6 +882,9 @@ pub fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PdfLinkType>()?;
     m.add_class::<SearchResponse>()?;
     m.add_class::<FullText>()?;
+    m.add_class::<Section>()?;
+    m.add_class::<GrepMatch>()?;
+    m.add_class::<GrepResult>()?;
     m.add_class::<ExportFormat>()?;
     m.add_class::<Metrics>()?;
     m.add_class::<BasicStats>()?;

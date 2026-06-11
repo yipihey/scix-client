@@ -85,6 +85,31 @@ mod cli {
             /// Maximum body characters before truncating (0 = unlimited)
             #[arg(short, long, default_value = "40000")]
             max_chars: usize,
+            /// Retrieve only this section (1-based index or title substring)
+            #[arg(short, long)]
+            section: Option<String>,
+        },
+        /// Search a regex pattern across the full text of multiple papers
+        Grep {
+            /// Regex pattern (case-insensitive by default)
+            pattern: String,
+            /// Bibcodes to search (or use --query)
+            bibcodes: Vec<String>,
+            /// ADS search query whose results are grepped
+            #[arg(short, long)]
+            query: Option<String>,
+            /// Max papers when using --query
+            #[arg(short, long, default_value = "10")]
+            rows: u32,
+            /// Match case-sensitively
+            #[arg(long)]
+            case_sensitive: bool,
+            /// Max matches per paper
+            #[arg(long, default_value = "5")]
+            max_matches: usize,
+            /// Characters of context around each match
+            #[arg(long, default_value = "120")]
+            context: usize,
         },
         /// Resolve free-text references to bibcodes
         Resolve {
@@ -337,7 +362,19 @@ mod cli {
                 println!("{}", serde_json::to_string_pretty(&metrics)?);
             }
 
-            Commands::Fulltext { bibcode, max_chars } => {
+            Commands::Fulltext {
+                bibcode,
+                max_chars,
+                section,
+            } => {
+                if let Some(selector) = section {
+                    let sec = client.fulltext_section(&bibcode, &selector).await?;
+                    match cli.output {
+                        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&sec)?),
+                        OutputFormat::Table => println!("{}\n\n{}", sec.title, sec.text),
+                    }
+                    return Ok(());
+                }
                 let ft = client.fulltext(&bibcode, max_chars).await?;
                 match cli.output {
                     OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&ft)?),
@@ -361,6 +398,58 @@ mod cli {
                                     println!("  {} — {}", link.label, link.url);
                                 }
                             }
+                        }
+                        if !ft.section_titles.is_empty() {
+                            println!("\nSections (retrieve one with --section):");
+                            for (i, title) in ft.section_titles.iter().enumerate() {
+                                println!("  {}. {}", i + 1, title);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Commands::Grep {
+                pattern,
+                bibcodes,
+                query,
+                rows,
+                case_sensitive,
+                max_matches,
+                context,
+            } => {
+                let opts = scix_client::batch::GrepOptions {
+                    case_sensitive,
+                    max_matches_per_paper: max_matches,
+                    context_chars: context,
+                };
+                let results = if !bibcodes.is_empty() {
+                    let refs: Vec<&str> = bibcodes.iter().map(|s| s.as_str()).collect();
+                    client.grep(&refs, &pattern, &opts).await?
+                } else if let Some(q) = &query {
+                    client.grep_query(q, rows, &pattern, &opts).await?
+                } else {
+                    return Err(scix_client::SciXError::InvalidQuery(
+                        "Provide bibcodes or --query".into(),
+                    ));
+                };
+
+                match cli.output {
+                    OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&results)?),
+                    OutputFormat::Table => {
+                        for r in &results {
+                            let year = r.year.map(|y| y.to_string()).unwrap_or_default();
+                            println!("{} — {} ({}) [{}]", r.bibcode, r.title, year, r.searched);
+                            for m in &r.matches {
+                                match &m.section {
+                                    Some(s) => println!("  ({}) {}", s, m.snippet),
+                                    None => println!("  {}", m.snippet),
+                                }
+                            }
+                            if r.matches.is_empty() {
+                                println!("  (no matches)");
+                            }
+                            println!();
                         }
                     }
                 }
