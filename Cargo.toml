@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-cli = ["dep:clap", "dep:comfy-table", "dep:dialoguer", "dep:dirs"]
+cli = ["dep:clap", "dep:comfy-table", "dep:dialoguer", "dep:dirs", "dep:toml", "dep:webbrowser"]
 python = ["dep:pyo3", "dep:pythonize"]
 
 [dependencies]
@@ -34,6 +34,8 @@ clap = { version = "4", features = ["derive"], optional = true }
 comfy-table = { version = "7", optional = true }
 dialoguer = { version = "0.11", optional = true }
 dirs = { version = "6", optional = true }
+toml = { version = "0.8", optional = true }
+webbrowser = { version = "1", optional = true }
 
 # Python bindings (optional)
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
