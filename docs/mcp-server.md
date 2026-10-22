@@ -14,93 +14,104 @@ Once connected, you can ask your AI assistant things like:
 - **"Find recent open-access papers about the Crab Nebula discussing X-ray emission"** — combines `scix_object_search` with property filters
 - **"What's the h-index for this set of papers? Show me the citation history."** — uses `scix_metrics` for indicators and histograms
 
-## Installation
+## Claude Desktop: the `.mcpb` extension
+
+Every release ships `scix-vX.Y.Z.mcpb`, a [Claude Desktop extension bundle](https://www.anthropic.com/engineering/desktop-extensions) containing a universal macOS binary and a Windows binary. Download it from the [latest release](https://github.com/yipihey/scix-client/releases/latest), double-click it, and paste your API token into the settings panel Claude Desktop shows. The token is stored in the OS keychain. Nothing else to configure.
+
+## Installing the `scix` binary
+
+For every other host, install `scix` once:
 
 ```bash
-# From crates.io (recommended)
-cargo install scix-client --features cli
+# One-line installer (prebuilt binary, no Rust toolchain)
+curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
 
-# Pre-built binary (via cargo-binstall — no compile needed)
-cargo binstall scix-client
+# Python — the wheel installs the same `scix` command
+pip install scix-client        # or: pipx install scix-client / uv tool install scix-client
+
+# Rust
+cargo install scix-client      # compiles locally
+cargo binstall scix-client     # prebuilt binary
 
 # From source
-cargo build --features cli --release
-cp target/release/scix ~/.local/bin/
+cargo build --release && cp target/release/scix ~/.local/bin/
 ```
 
-You need a SciX/ADS API token (free): <https://ui.adsabs.harvard.edu/user/settings/token>
+Prebuilt binaries cover Linux (x86_64, aarch64), macOS (Intel, Apple silicon), and Windows (x86_64).
+
+## The API token
+
+Get a free token at <https://ui.adsabs.harvard.edu/user/settings/token>. `scix` looks for it in this order:
+
+1. `SCIX_API_TOKEN` environment variable
+2. `ADS_API_TOKEN` environment variable
+3. The token file: `~/.config/scix/token` (`$XDG_CONFIG_HOME/scix/token` if set; `%APPDATA%\scix\token` on Windows; `SCIX_CONFIG_DIR` overrides the directory)
 
 ```bash
-export SCIX_API_TOKEN="your-token-here"
+scix login            # prompt for the token, validate it, write the token file (mode 0600)
+scix login --token …  # non-interactive
 ```
 
-## Automatic Setup (Recommended)
+GUI editors launch MCP servers without your shell environment, so the token file is what makes a bare `scix serve` work from Claude Desktop, Cursor, VS Code, or an install badge. You can still put `SCIX_API_TOKEN` in a host's `env` block instead.
 
-The easiest way to configure your editors is with the setup wizard:
+`scix serve` never refuses to start. Without a token it still answers `initialize` and `tools/list` (so the host shows it as connected) and returns a clear error, with the token URL, from the first tool call. The token is re-read on each call, so running `scix login` takes effect without restarting the host.
+
+## Automatic Setup (Recommended)
 
 ```bash
 scix setup
 ```
 
 This will:
-1. Find or prompt for your API token
-2. Validate the token against the SciX API
+1. Find your token (environment or token file) or prompt for it, offering to open the token page in your browser
+2. Validate the token against the SciX API and save it to the token file
 3. Detect which editors you have installed
-4. Write the correct MCP config for each one
+4. Write the correct MCP config for each one, using the absolute path of the `scix` binary
 
-Options:
 ```
 scix setup                     # Full interactive wizard
-scix setup claude-code         # Configure only Claude Code
+scix setup claude-code         # Configure only Claude Code   (user scope: all projects)
 scix setup claude-desktop      # Configure only Claude Desktop
 scix setup cursor              # Configure only Cursor
 scix setup zed                 # Configure only Zed
+scix setup gemini-cli          # Configure only Gemini CLI
+scix setup codex-cli           # Configure only Codex CLI (OpenAI)
+scix setup windsurf            # Configure only Windsurf
 
 Flags:
   --skip-validation   Don't test the API token
   -y, --yes           Non-interactive (use env token, configure all detected editors)
 ```
 
+Check the result any time with `scix doctor`.
+
 ## Manual Setup by Editor
 
-If you prefer to configure editors manually:
+All examples assume you ran `scix login`. Otherwise add `"env": { "SCIX_API_TOKEN": "your-token-here" }` to the entry. GUI editors do not inherit your shell `PATH`; when in doubt use the full path printed by `which scix`.
 
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add scix -- /path/to/scix serve
+claude mcp add --scope user scix -- scix serve
 ```
 
-Or add manually to `~/.claude/settings.json`:
+`--scope user` registers the server for every project. The default (`local`) scope ties it to the directory you ran the command in. User-scope servers live in `~/.claude.json`; project-scope ones in a `.mcp.json` you can commit:
 
 ```json
-{
-  "mcpServers": {
-    "scix": {
-      "command": "/path/to/scix",
-      "args": ["serve"],
-      "env": {
-        "SCIX_API_TOKEN": "your-token-here"
-      }
-    }
-  }
-}
+{ "mcpServers": { "scix": { "command": "scix", "args": ["serve"] } } }
 ```
 
 ### Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
-or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Prefer the `.mcpb` above. Otherwise edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
     "scix": {
-      "command": "/path/to/scix",
+      "command": "/full/path/to/scix",
       "args": ["serve"],
-      "env": {
-        "SCIX_API_TOKEN": "your-token-here"
-      }
+      "env": { "SCIX_API_TOKEN": "your-token-here" }
     }
   }
 }
@@ -108,50 +119,85 @@ or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ### Cursor
 
-In Cursor Settings > MCP, add:
+Click the **Add to Cursor** badge in the README, or add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 
 ```json
-{
-  "mcpServers": {
-    "scix": {
-      "command": "/path/to/scix",
-      "args": ["serve"],
-      "env": {
-        "SCIX_API_TOKEN": "your-token-here"
-      }
-    }
-  }
-}
+{ "mcpServers": { "scix": { "command": "scix", "args": ["serve"] } } }
+```
+
+### VS Code (GitHub Copilot)
+
+Click the **Install in VS Code** badge in the README, or add to `.vscode/mcp.json`:
+
+```json
+{ "servers": { "scix": { "type": "stdio", "command": "scix", "args": ["serve"] } } }
 ```
 
 ### Zed
 
-In Zed settings (`settings.json`):
+In Zed's `settings.json`:
 
 ```json
 {
   "context_servers": {
-    "scix": {
-      "command": {
-        "path": "/path/to/scix",
-        "args": ["serve"],
-        "env": {
-          "SCIX_API_TOKEN": "your-token-here"
-        }
-      }
-    }
+    "scix": { "command": "scix", "args": ["serve"], "env": {} }
   }
 }
+```
+
+(Older Zed releases used a nested `"command": { "path": … }` form; current Zed migrates such entries automatically.)
+
+### Gemini CLI
+
+Add to `~/.gemini/settings.json`:
+
+```json
+{ "mcpServers": { "scix": { "command": "scix", "args": ["serve"] } } }
+```
+
+### Codex CLI
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.scix]
+command = "scix"
+args = ["serve"]
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{ "mcpServers": { "scix": { "command": "scix", "args": ["serve"] } } }
+```
+
+### No install: `uvx`
+
+Any host can run the PyPI package on demand if [uv](https://docs.astral.sh/uv/) is installed:
+
+```json
+{ "command": "uvx", "args": ["scix-client", "serve"], "env": { "SCIX_API_TOKEN": "your-token-here" } }
 ```
 
 ### Verify It Works
 
 ```bash
-# Should print the tool list as JSON
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}
+# Should print three lines: initialize result (with "instructions"), ping result, tool list
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | SCIX_API_TOKEN=your-token scix serve
+{"jsonrpc":"2.0","id":2,"method":"ping"}
+{"jsonrpc":"2.0","id":3,"method":"tools/list"}' | scix serve
 ```
+
+## Protocol Notes
+
+- Transport: stdio, newline-delimited JSON-RPC 2.0.
+- Protocol revisions `2024-11-05`, `2025-03-26`, and `2025-06-18` are accepted and echoed back; unknown requests get `2025-06-18`.
+- `initialize` returns an `instructions` string with query-syntax guidance for the model; `ping` is supported.
+- Capabilities: `tools` and `resources`. All tools carry annotations (`readOnlyHint`, `destructiveHint`, …).
+- Also listed in the [official MCP registry](https://registry.modelcontextprotocol.io/) as `io.github.yipihey/scix`.
 
 ## Available Tools
 

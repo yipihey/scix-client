@@ -14,7 +14,7 @@ pub enum SciXError {
     Api { status: u16, message: String },
 
     /// No API token provided.
-    #[error("Authentication required: set SCIX_API_TOKEN (or ADS_API_TOKEN) environment variable or pass token to SciXClient::new()")]
+    #[error("No SciX API token found. Get a free token at https://ui.adsabs.harvard.edu/user/settings/token then run `scix setup` (or `scix login`), or set the SCIX_API_TOKEN environment variable.")]
     AuthRequired,
 
     /// Rate limited by SciX API (HTTP 429).

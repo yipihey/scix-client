@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.0 — 2026-10-21
+
+Onboarding release: the goal is that a new user gets a working MCP server in one step.
+
+### Install
+- `cli` is now a default feature, so a plain `cargo install scix-client` installs the `scix` binary (it previously compiled and installed nothing)
+- Claude Desktop extension bundle: every release ships `scix-vX.Y.Z.mcpb` (universal macOS + Windows) — double-click, paste token, done
+- One-line installer `install.sh` for prebuilt binaries (Linux x86_64/aarch64, macOS)
+- Linux aarch64 prebuilt binaries
+- PyPI wheels are `abi3` (one wheel per platform for all Python ≥ 3.8) and install the `scix` and `scix-client` console scripts, so `pip install scix-client` and `uvx scix-client serve` give you the MCP server
+- `cargo binstall` fixed on Windows (zip override)
+- Listed in the official MCP registry as `io.github.yipihey/scix`
+- "Add to Cursor" and "Install in VS Code" badges
+
+### Token handling
+- New token file `~/.config/scix/token` (`%APPDATA%\scix\token` on Windows; `SCIX_CONFIG_DIR` override), written by `scix setup` and the new `scix login`; checked after `SCIX_API_TOKEN` / `ADS_API_TOKEN` by `SciXClient::from_env()` in Rust and Python too
+- `scix serve` no longer exits when no token is found: it answers `initialize`/`tools/list` and returns a clear `isError` result with the token URL from tool calls, re-checking for a token on each call
+
+### MCP server
+- `ping` supported; `initialize` negotiates protocol versions 2024-11-05 / 2025-03-26 / 2025-06-18 and returns `instructions` with query guidance
+- Sharper `scix_search` and `scix_resolve_reference` descriptions (field queries vs complete citations)
+
+### Setup wizard
+- Claude Code is registered at user scope (`claude mcp add --scope user`); it was previously local to the directory the wizard ran in
+- Without the `claude` CLI the wizard writes `~/.claude.json`, not `~/.claude/settings.json`
+- Zed entries use the current flat `command`/`args`/`env` schema
+- New editors: Gemini CLI, Codex CLI (TOML), Windsurf; offers to open the token page in a browser
+- New `scix doctor` diagnostic and `scix login`
+
+### Bug fixes
+- `scix_resolve_reference` / `resolve_references` sent a text/plain body; the endpoint wants JSON and answered "no information received" for every input
+
+### Internal
+- CLI moved into the library (`scix_client::cli`) so the binary and the Python console script share it
+
 ## 0.3.1 — 2026-03-05
 
 ### Enhancements

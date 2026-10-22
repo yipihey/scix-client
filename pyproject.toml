@@ -4,11 +4,11 @@ build-backend = "maturin"
 
 [project]
 name = "scix-client"
-version = "0.3.1"
-description = "Python client for the SciX (NASA ADS) API — powered by Rust"
+version = "0.4.0"
+description = "SciX (NASA ADS) literature search: Python client plus the `scix` CLI and MCP server — powered by Rust"
 requires-python = ">=3.8"
 license = { text = "MIT" }
-keywords = ["scix", "ads", "nasa", "astronomy", "bibliography", "astrophysics"]
+keywords = ["scix", "ads", "nasa", "astronomy", "bibliography", "astrophysics", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -18,8 +18,20 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
 
+[project.urls]
+Homepage = "https://github.com/yipihey/scix-client"
+Repository = "https://github.com/yipihey/scix-client"
+Changelog = "https://github.com/yipihey/scix-client/blob/main/CHANGELOG.md"
+
+# `pip install scix-client` (or `uvx scix-client serve`) gives you the same
+# `scix` command as the Rust binary, including the MCP server.
+[project.scripts]
+scix = "scix_client:main"
+scix-client = "scix_client:main"
+
 [tool.maturin]
-features = ["python"]
+# abi3: one wheel per platform works on every CPython >= 3.8.
+features = ["python", "cli"]
 bindings = "pyo3"
 module-name = "scix_client"
 manifest-path = "Cargo.toml"

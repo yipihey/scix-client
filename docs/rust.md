@@ -6,8 +6,10 @@
 
 ```toml
 [dependencies]
-scix-client = "0.3"
+scix-client = { version = "0.4", default-features = false }
 ```
+
+`default-features = false` leaves out the CLI/MCP dependencies (clap, dialoguer, …). They are on by default so that `cargo install scix-client` yields the `scix` binary.
 
 ## Basic Search
 

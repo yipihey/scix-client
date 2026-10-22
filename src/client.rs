@@ -3,7 +3,94 @@
 use crate::error::{Result, SciXError};
 use crate::rate_limit::RateLimiter;
 use reqwest::Client;
+use std::path::PathBuf;
 use std::time::Duration;
+
+/// Where the saved API token lives.
+///
+/// Writes `scix/token` under the platform config directory:
+/// `%APPDATA%` on Windows, otherwise `$XDG_CONFIG_HOME` or `~/.config`.
+/// The GUI editors that launch `scix serve` do not inherit a shell
+/// environment, so a saved token is what lets a bare `scix serve` work
+/// from Claude Desktop, Cursor, or an install badge.
+pub fn token_file_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("SCIX_CONFIG_DIR") {
+        return Some(PathBuf::from(dir).join("token"));
+    }
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+    }?;
+    Some(base.join("scix").join("token"))
+}
+
+/// Where a resolved token came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenSource {
+    /// `SCIX_API_TOKEN` or `ADS_API_TOKEN` environment variable.
+    Env(&'static str),
+    /// The token file written by `scix setup` / `scix login`.
+    File(PathBuf),
+}
+
+impl std::fmt::Display for TokenSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Env(name) => write!(f, "{} environment variable", name),
+            Self::File(path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+/// Find the API token without constructing a client, reporting where it was found.
+///
+/// Order: `SCIX_API_TOKEN`, `ADS_API_TOKEN`, then the token file.
+pub fn resolve_token_with_source() -> Option<(String, TokenSource)> {
+    for name in ["SCIX_API_TOKEN", "ADS_API_TOKEN"] {
+        if let Ok(token) = std::env::var(name) {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                return Some((token, TokenSource::Env(name)));
+            }
+        }
+    }
+    let path = token_file_path()?;
+    let token = std::fs::read_to_string(&path).ok()?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return None;
+    }
+    Some((token, TokenSource::File(path)))
+}
+
+/// Find the API token without constructing a client.
+pub fn resolve_token() -> Option<String> {
+    resolve_token_with_source().map(|(t, _)| t)
+}
+
+/// Save a token to the token file (mode 0600 on Unix). Returns the path written.
+pub fn save_token(token: &str) -> std::io::Result<PathBuf> {
+    let path = token_file_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "cannot determine a config directory (HOME/APPDATA unset)",
+        )
+    })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, format!("{}\n", token.trim()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(path)
+}
 
 /// Async client for the SciX (NASA ADS) API.
 ///
@@ -43,14 +130,11 @@ impl SciXClient {
         }
     }
 
-    /// Create a client from the `SCIX_API_TOKEN` (or `ADS_API_TOKEN`) environment variable.
+    /// Create a client from the ambient token: `SCIX_API_TOKEN`, then
+    /// `ADS_API_TOKEN`, then the token file written by `scix setup` /
+    /// `scix login` (see [`token_file_path`]).
     pub fn from_env() -> Result<Self> {
-        let token = std::env::var("SCIX_API_TOKEN")
-            .or_else(|_| std::env::var("ADS_API_TOKEN"))
-            .map_err(|_| SciXError::AuthRequired)?;
-        if token.is_empty() {
-            return Err(SciXError::AuthRequired);
-        }
+        let token = resolve_token().ok_or(SciXError::AuthRequired)?;
         Ok(Self::new(token))
     }
 
@@ -102,32 +186,6 @@ impl SciXClient {
             // it explicitly is correct everywhere and load-bearing in one place.
             .header("Accept", "application/json")
             .json(body)
-            .send()
-            .await?;
-
-        self.rate_limiter
-            .update_from_headers(response.headers())
-            .await;
-        handle_response(response).await
-    }
-
-    /// Make an authenticated POST request with a text body.
-    pub(crate) async fn post_text(
-        &self,
-        path: &str,
-        content_type: &str,
-        body: &str,
-    ) -> Result<String> {
-        self.rate_limiter.acquire().await;
-
-        let url = format!("{}{}", self.base_url, path);
-        let response = self
-            .http
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
-            .header("User-Agent", "scix-client/0.1.0")
-            .header("Content-Type", content_type)
-            .body(body.to_string())
             .send()
             .await?;
 

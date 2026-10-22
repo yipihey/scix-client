@@ -1,12 +1,14 @@
 //! `scix setup` — one-command MCP server configuration for AI editors.
 //!
-//! Detects installed editors (Claude Code, Claude Desktop, Cursor, Zed),
-//! prompts for an API token, validates it, and writes the correct MCP
-//! config for each editor.
+//! Detects installed editors (Claude Code, Claude Desktop, Cursor, Zed, Gemini
+//! CLI, Codex CLI, Windsurf), prompts for an API token, validates it, and
+//! writes the correct MCP config for each editor.
 
 use crate::error::{Result, SciXError};
 use crate::SciXClient;
 use std::path::PathBuf;
+
+const TOKEN_URL: &str = "https://ui.adsabs.harvard.edu/user/settings/token";
 
 /// Supported AI editors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -15,6 +17,9 @@ pub enum EditorTarget {
     ClaudeDesktop,
     Cursor,
     Zed,
+    GeminiCli,
+    CodexCli,
+    Windsurf,
 }
 
 impl std::fmt::Display for EditorTarget {
@@ -24,6 +29,9 @@ impl std::fmt::Display for EditorTarget {
             Self::ClaudeDesktop => write!(f, "Claude Desktop"),
             Self::Cursor => write!(f, "Cursor"),
             Self::Zed => write!(f, "Zed"),
+            Self::GeminiCli => write!(f, "Gemini CLI"),
+            Self::CodexCli => write!(f, "Codex CLI"),
+            Self::Windsurf => write!(f, "Windsurf"),
         }
     }
 }
@@ -59,34 +67,38 @@ fn mask_token(token: &str) -> String {
     format!("{}...{}", &token[..4], &token[token.len() - 4..])
 }
 
-/// Resolve the API token from env vars or interactive prompt.
+/// Resolve the API token from env vars, the token file, or an interactive prompt.
 fn resolve_token(yes: bool) -> Result<String> {
-    // Check env vars first.
-    if let Ok(token) = std::env::var("SCIX_API_TOKEN") {
-        if !token.is_empty() {
-            println!("  Found SCIX_API_TOKEN in environment.");
-            println!("  Token: {}", mask_token(&token));
-            return Ok(token);
-        }
-    }
-    if let Ok(token) = std::env::var("ADS_API_TOKEN") {
-        if !token.is_empty() {
-            println!("  Found ADS_API_TOKEN in environment.");
-            println!("  Token: {}", mask_token(&token));
-            return Ok(token);
-        }
+    if let Some((token, source)) = crate::client::resolve_token_with_source() {
+        println!("  Found token in {}.", source);
+        println!("  Token: {}", mask_token(&token));
+        return Ok(token);
     }
 
     if yes {
         return Err(SciXError::Config(
-            "No SCIX_API_TOKEN or ADS_API_TOKEN found in environment (required with --yes)"
+            "No API token found (SCIX_API_TOKEN / ADS_API_TOKEN unset, no token file); required with --yes"
                 .to_string(),
         ));
     }
 
     // Interactive prompt.
-    println!("  No API token found in environment.");
-    println!("  Get a free token at: https://ui.adsabs.harvard.edu/user/settings/token");
+    println!("  No API token found.");
+    println!("  Get a free token at: {}", TOKEN_URL);
+
+    let open_browser = dialoguer::Confirm::new()
+        .with_prompt("  Open the token page in your browser now?")
+        .default(true)
+        .interact()
+        .unwrap_or(false);
+    if open_browser {
+        if let Err(e) = webbrowser::open(TOKEN_URL) {
+            println!(
+                "  Could not open browser ({}). Visit the URL above manually.",
+                e
+            );
+        }
+    }
     println!();
 
     let token: String = dialoguer::Password::new()
@@ -124,6 +136,40 @@ async fn validate_token(token: &str) -> Result<()> {
     }
 }
 
+/// Persist the token so `scix serve` finds it without any environment setup.
+fn save_token(token: &str) -> Result<PathBuf> {
+    crate::client::save_token(token)
+        .map_err(|e| SciXError::Config(format!("Could not save token: {}", e)))
+}
+
+/// `scix login`: acquire, validate, and save the API token. Does not touch
+/// any editor configuration.
+pub async fn run_login(token: Option<String>, skip_validation: bool) -> Result<()> {
+    println!();
+    println!("scix login \u{2014} save your SciX/ADS API token");
+    println!("=========================================");
+    println!();
+
+    let token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => {
+            println!("Checking API token...");
+            resolve_token(false)?
+        }
+    };
+
+    if !skip_validation {
+        validate_token(&token).await?;
+    }
+
+    let path = save_token(&token)?;
+    println!("  Saved to {}", path.display());
+    println!();
+    println!("Done. Any MCP host can now run `scix serve` with no further configuration.");
+    println!("Run `scix setup` to register scix with your editors, or `scix doctor` to check.");
+    Ok(())
+}
+
 /// Get the absolute path to the current scix binary.
 fn locate_binary() -> Result<PathBuf> {
     std::env::current_exe().map_err(|e| SciXError::Config(format!("Cannot locate binary: {}", e)))
@@ -131,13 +177,23 @@ fn locate_binary() -> Result<PathBuf> {
 
 /// Check if `claude` CLI is available on PATH.
 fn claude_cli_available() -> bool {
-    std::process::Command::new("which")
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(finder)
         .arg("claude")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Public: return the list of editor targets detected on this system.
+/// Used by `scix doctor`.
+pub fn detect_editors_public(filter: Option<EditorTarget>) -> Vec<EditorTarget> {
+    detect_editors(filter)
+        .into_iter()
+        .map(|e| e.target)
+        .collect()
 }
 
 /// Detect which editors are installed.
@@ -151,6 +207,8 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
 
     // Claude Code: prefer CLI, fallback to config file.
     if filter.is_none() || filter == Some(EditorTarget::ClaudeCode) {
+        // Without the CLI, user-scope servers live in ~/.claude.json
+        // (not ~/.claude/settings.json, which does not define servers).
         let has_cli = claude_cli_available();
         let claude_dir = home.join(".claude");
         if has_cli || claude_dir.exists() {
@@ -159,7 +217,7 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
                 config_path: if has_cli {
                     None
                 } else {
-                    Some(claude_dir.join("settings.json"))
+                    Some(home.join(".claude.json"))
                 },
                 use_cli: has_cli,
             });
@@ -213,6 +271,42 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
         }
     }
 
+    // Gemini CLI (Google) — ~/.gemini/settings.json with mcpServers key.
+    if filter.is_none() || filter == Some(EditorTarget::GeminiCli) {
+        let gemini_dir = home.join(".gemini");
+        if gemini_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::GeminiCli,
+                config_path: Some(gemini_dir.join("settings.json")),
+                use_cli: false,
+            });
+        }
+    }
+
+    // Codex CLI (OpenAI) — ~/.codex/config.toml with [mcp_servers.scix] table.
+    if filter.is_none() || filter == Some(EditorTarget::CodexCli) {
+        let codex_dir = home.join(".codex");
+        if codex_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::CodexCli,
+                config_path: Some(codex_dir.join("config.toml")),
+                use_cli: false,
+            });
+        }
+    }
+
+    // Windsurf (Codeium) — ~/.codeium/windsurf/mcp_config.json.
+    if filter.is_none() || filter == Some(EditorTarget::Windsurf) {
+        let windsurf_dir = home.join(".codeium/windsurf");
+        if windsurf_dir.exists() {
+            editors.push(DetectedEditor {
+                target: EditorTarget::Windsurf,
+                config_path: Some(windsurf_dir.join("mcp_config.json")),
+                use_cli: false,
+            });
+        }
+    }
+
     editors
 }
 
@@ -227,17 +321,11 @@ fn standard_mcp_entry(binary: &str, token: &str) -> serde_json::Value {
     })
 }
 
-/// Build the MCP server entry for Zed (different schema).
+/// Build the MCP server entry for Zed: same keys as everyone else, under
+/// `context_servers`. (Zed dropped the nested `command: { path }` form and
+/// the `source` tag; its settings migrator rewrites old entries.)
 fn zed_mcp_entry(binary: &str, token: &str) -> serde_json::Value {
-    serde_json::json!({
-        "command": {
-            "path": binary,
-            "args": ["serve"],
-            "env": {
-                "SCIX_API_TOKEN": token
-            }
-        }
-    })
+    standard_mcp_entry(binary, token)
 }
 
 /// Update a JSON config file, inserting the scix entry under the given section key.
@@ -335,10 +423,14 @@ fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
             .status();
     }
 
+    // User scope: the default (local) scope would register scix only for
+    // whichever directory the wizard happened to run in.
     let status = std::process::Command::new("claude")
         .args([
             "mcp",
             "add",
+            "--scope",
+            "user",
             "scix",
             "-e",
             &format!("SCIX_API_TOKEN={}", token),
@@ -357,6 +449,83 @@ fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
     }
 }
 
+/// Update a TOML config file, inserting `[mcp_servers.scix]`.
+/// Used by Codex CLI which is TOML-native.
+fn update_toml_codex_config(
+    path: &PathBuf,
+    binary: &str,
+    token: &str,
+    yes: bool,
+) -> std::result::Result<ConfigResult, String> {
+    let content = if path.exists() {
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
+    } else {
+        String::new()
+    };
+
+    let mut root: toml::Table = if content.trim().is_empty() {
+        toml::Table::new()
+    } else {
+        content
+            .parse()
+            .map_err(|e| format!("Could not parse {}: {}", path.display(), e))?
+    };
+
+    // Ensure [mcp_servers] table exists.
+    if !root.contains_key("mcp_servers") {
+        root.insert(
+            "mcp_servers".to_string(),
+            toml::Value::Table(toml::Table::new()),
+        );
+    }
+    let servers = root
+        .get_mut("mcp_servers")
+        .and_then(|v| v.as_table_mut())
+        .ok_or_else(|| format!("\"mcp_servers\" in {} is not a table", path.display()))?;
+
+    if servers.contains_key("scix") && !yes {
+        let overwrite = dialoguer::Confirm::new()
+            .with_prompt(format!(
+                "  scix is already configured in {}. Overwrite?",
+                path.display()
+            ))
+            .default(false)
+            .interact()
+            .unwrap_or(false);
+        if !overwrite {
+            return Ok(ConfigResult::Skipped);
+        }
+    }
+
+    // Build the scix sub-table.
+    let mut scix_entry = toml::Table::new();
+    scix_entry.insert(
+        "command".to_string(),
+        toml::Value::String(binary.to_string()),
+    );
+    scix_entry.insert(
+        "args".to_string(),
+        toml::Value::Array(vec![toml::Value::String("serve".to_string())]),
+    );
+    let mut env_table = toml::Table::new();
+    env_table.insert(
+        "SCIX_API_TOKEN".to_string(),
+        toml::Value::String(token.to_string()),
+    );
+    scix_entry.insert("env".to_string(), toml::Value::Table(env_table));
+    servers.insert("scix".to_string(), toml::Value::Table(scix_entry));
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {}", parent.display(), e))?;
+    }
+    std::fs::write(path, toml::to_string_pretty(&root).unwrap().as_bytes())
+        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))?;
+
+    Ok(ConfigResult::Configured)
+}
+
 /// Configure a single editor.
 fn configure_editor(editor: &DetectedEditor, binary: &str, token: &str, yes: bool) -> ConfigResult {
     if editor.use_cli && editor.target == EditorTarget::ClaudeCode {
@@ -367,6 +536,17 @@ fn configure_editor(editor: &DetectedEditor, binary: &str, token: &str, yes: boo
         Some(p) => p,
         None => return ConfigResult::Failed("no config path".to_string()),
     };
+
+    // Codex CLI uses TOML; everyone else uses JSON with slight schema variations.
+    if editor.target == EditorTarget::CodexCli {
+        return match update_toml_codex_config(path, binary, token, yes) {
+            Ok(result) => result,
+            Err(msg) => {
+                eprintln!("  {}", msg);
+                ConfigResult::Failed("parse error".to_string())
+            }
+        };
+    }
 
     let (section_key, entry) = match editor.target {
         EditorTarget::Zed => ("context_servers", zed_mcp_entry(binary, token)),
@@ -403,6 +583,10 @@ pub async fn run_setup(
     } else {
         println!("  Skipping validation (--skip-validation).");
     }
+    match save_token(&token) {
+        Ok(path) => println!("  Saved to {}", path.display()),
+        Err(e) => println!("  WARNING: {}", e),
+    }
     println!();
 
     // 3. Locate binary.
@@ -419,6 +603,9 @@ pub async fn run_setup(
         EditorTarget::ClaudeDesktop,
         EditorTarget::Cursor,
         EditorTarget::Zed,
+        EditorTarget::GeminiCli,
+        EditorTarget::CodexCli,
+        EditorTarget::Windsurf,
     ];
 
     let detected = detect_editors(editor);
@@ -446,6 +633,7 @@ pub async fn run_setup(
         } else {
             println!("No supported editors detected.");
         }
+        println!("Your token is saved, so any MCP host can run `scix serve` as is.");
         println!("See https://github.com/yipihey/scix-client for manual setup instructions.");
         return Ok(());
     }
