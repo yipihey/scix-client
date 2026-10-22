@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.yipihey/scix",
   "title": "SciX / NASA ADS",
-  "description": "Astronomy and physics literature search (SciX / NASA ADS): papers, citations, metrics, BibTeX export, ADS libraries.",
+  "description": "Search the astronomy and physics literature (SciX / NASA ADS): papers, citations, metrics, BibTeX.",
   "version": "@VERSION@",
   "repository": {
     "url": "https://github.com/yipihey/scix-client",

@@ -4,8 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "scix-client"
-version = "0.4.0"
+version = "0.4.1"
 description = "SciX (NASA ADS) literature search: Python client plus the `scix` CLI and MCP server — powered by Rust"
+readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 keywords = ["scix", "ads", "nasa", "astronomy", "bibliography", "astrophysics", "mcp"]

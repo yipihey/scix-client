@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 — 2026-10-22
+
+### Bug Fixes
+- MCP registry listing: description trimmed to the registry's 100-character limit
+- PyPI package now includes the README as its long description (also required for the registry's PyPI ownership check)
+
 ## 0.4.0 — 2026-10-21
 
 Onboarding release: the goal is that a new user gets a working MCP server in one step.
