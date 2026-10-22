@@ -96,6 +96,11 @@ impl SciXClient {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_token))
             .header("User-Agent", "scix-client/0.1.0")
+            // `/reference/text` content-negotiates: without this it answers in
+            // plain "score bibcode -- refstring" lines, which no caller parses.
+            // Every other endpoint here returns JSON regardless, so asking for
+            // it explicitly is correct everywhere and load-bearing in one place.
+            .header("Accept", "application/json")
             .json(body)
             .send()
             .await?;

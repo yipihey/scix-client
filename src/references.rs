@@ -10,11 +10,13 @@ impl SciXClient {
     /// Resolve free-text references to ADS bibcodes.
     ///
     /// Example: "Einstein 1905 Annalen der Physik 17 891" → bibcode.
+    /// The endpoint takes a JSON body keyed `reference`, NOT a plain-text one.
+    /// Posting `text/plain` returns `{"error":"no information received"}` for
+    /// every input, however well-formed the citation — which looked like the
+    /// references were unresolvable rather than like a malformed request.
     pub async fn resolve_references(&self, references: &[&str]) -> Result<Vec<ResolvedReference>> {
-        let text = references.join("\n");
-        let response_body = self
-            .post_text("/reference/text", "text/plain", &text)
-            .await?;
+        let body = serde_json::json!({ "reference": references });
+        let response_body = self.post_json("/reference/text", &body).await?;
 
         let parsed: serde_json::Value = serde_json::from_str(&response_body)
             .map_err(|e| SciXError::Parse(format!("Invalid reference response: {}", e)))?;

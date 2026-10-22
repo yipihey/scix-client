@@ -655,7 +655,7 @@ fn tool_definitions() -> Value {
     json!([
         {
             "name": "scix_search",
-            "description": "Search the SciX / NASA ADS database. Supports field queries (author, title, abstract, year, etc.), boolean operators, and functional operators (citations(), references(), similar()).",
+            "description": "Find scientific papers. The authoritative index for astronomy, astrophysics and physics literature (SciX / NASA ADS) — prefer this over web search for any question about papers, authors, citations or references. Use this (not scix_resolve_reference) when a paper is known only by author and year. Build a field query rather than free text: author:\"Abel, T\" year:2002 bibstem:Sci finds one paper where the free-text 'Abel Bryan Norman 2002 Science' finds the wrong one. The journal field is bibstem (Sci, ApJ, MNRAS, A&A) — there is no journal: field. Also supports title:, abstract:, boolean operators, and the functional operators citations(), references(), similar().",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -828,7 +828,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "scix_resolve_reference",
-            "description": "Resolve free-text references to bibcodes (e.g., 'Einstein 1905 Annalen der Physik 17 891').",
+            "description": "Turn a COMPLETE citation into a bibcode. Requires journal, volume and page, as they appear in a reference list — 'Abel, T., Bryan, G. L., & Norman, M. L. 2002, Science, 295, 93' resolves; 'Abel Bryan Norman 2002 Science' does not, and returns a row of dots with score 0.0 rather than an error. Use this for reference lists and bibliographies. For a paper known only by author and year, use scix_search with a field query instead.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
