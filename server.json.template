@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yipihey/scix",
+  "title": "SciX / NASA ADS",
+  "description": "Astronomy and physics literature search (SciX / NASA ADS): papers, citations, metrics, BibTeX export, ADS libraries.",
+  "version": "@VERSION@",
+  "repository": {
+    "url": "https://github.com/yipihey/scix-client",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/yipihey/scix-client",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/yipihey/scix-client/releases/download/v@VERSION@/scix-v@VERSION@.mcpb",
+      "fileSha256": "@MCPB_SHA256@",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "SCIX_API_TOKEN",
+          "description": "SciX / ADS API token from https://ui.adsabs.harvard.edu/user/settings/token",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "scix-client",
+      "version": "@VERSION@",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "serve" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "SCIX_API_TOKEN",
+          "description": "SciX / ADS API token from https://ui.adsabs.harvard.edu/user/settings/token",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

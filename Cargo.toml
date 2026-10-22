@@ -1,10 +1,10 @@
 [package]
 name = "scix-client"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
-description = "Rust client for the SciX (NASA ADS) API — library, CLI, and MCP server"
-keywords = ["scix", "ads", "nasa", "astronomy", "bibliography"]
+description = "SciX (NASA ADS) literature search as an MCP server, CLI, Rust library, and Python module"
+keywords = ["scix", "ads", "nasa", "astronomy", "mcp"]
 categories = ["api-bindings", "science"]
 repository = "https://github.com/yipihey/scix-client"
 homepage = "https://github.com/yipihey/scix-client"
@@ -16,8 +16,11 @@ include = ["src/**/*", "Cargo.toml", "LICENSE-MIT", "README.md", "pyproject.toml
 name = "scix_client"
 crate-type = ["cdylib", "rlib"]
 
+# The `scix` binary (CLI + MCP server) is on by default so that a plain
+# `cargo install scix-client` installs it. Library users who do not want the
+# CLI dependencies can opt out with `default-features = false`.
 [features]
-default = []
+default = ["cli"]
 cli = ["dep:clap", "dep:comfy-table", "dep:dialoguer", "dep:dirs", "dep:toml", "dep:webbrowser"]
 python = ["dep:pyo3", "dep:pythonize"]
 
@@ -38,7 +41,7 @@ toml = { version = "0.8", optional = true }
 webbrowser = { version = "1", optional = true }
 
 # Python bindings (optional)
-pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"], optional = true }
 pythonize = { version = "0.23", optional = true }
 
 [dev-dependencies]
@@ -50,6 +53,9 @@ path = "src/bin/scix.rs"
 required-features = ["cli"]
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/scix-v{ version }-{ target }.tar.gz"
+pkg-url = "{ repo }/releases/download/v{ version }/scix-v{ version }-{ target }{ archive-suffix }"
 bin-dir = "{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

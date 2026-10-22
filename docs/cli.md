@@ -5,12 +5,12 @@
 The `scix` binary provides command-line access to the SciX/NASA ADS API. Install it with:
 
 ```bash
-cargo install scix-client --features cli
-# or pre-built:
-cargo binstall scix-client
+curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh   # prebuilt
+pip install scix-client      # the wheel installs the same `scix` command
+cargo install scix-client    # compiles locally; or: cargo binstall scix-client
 ```
 
-All commands require `SCIX_API_TOKEN` (or `ADS_API_TOKEN`) in your environment.
+All commands need an API token: `SCIX_API_TOKEN` (or `ADS_API_TOKEN`) in your environment, or the token file written by `scix login` (see [Setup](#setup-token-and-mcp)).
 
 ## Searching
 
@@ -241,11 +241,22 @@ scix libraries ops abc123def copy --source source1
 scix libraries ops abc123def empty
 ```
 
-## MCP Server
+## Setup, Token, and MCP
 
 ```bash
-# Start MCP server (reads JSON-RPC from stdin, writes to stdout)
+# Save your API token to ~/.config/scix/token (validated first)
+scix login
+scix login --token "your-token" --skip-validation
+
+# Save the token AND register the MCP server with every detected editor
+scix setup
+scix setup cursor --yes
+
+# Check binary, PATH, token source, API connectivity, detected editors
+scix doctor
+
+# Start the MCP server (reads JSON-RPC from stdin, writes to stdout)
 scix serve
 ```
 
-See [mcp-server.md](mcp-server.md) for full setup instructions.
+See [mcp-server.md](mcp-server.md) for per-editor instructions and the tool reference.

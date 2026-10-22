@@ -17,4 +17,53 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
-      - run: cargo build --features cli
+      # Default features must produce the binary: `cargo install scix-client` relies on it.
+      - run: cargo build
+      - name: Library builds without the CLI
+        run: cargo build --no-default-features
+      - name: MCP smoke test (no token)
+        run: |
+          out=$(printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"ping"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/list"}' \
+            | env -u SCIX_API_TOKEN -u ADS_API_TOKEN ./target/debug/scix serve)
+          echo "$out" | head -c 600; echo
+          echo "$out" | grep -q '"instructions"'
+          echo "$out" | grep -q '"scix_search"'
+          [ "$(echo "$out" | wc -l)" -eq 3 ]
+
+  mcpb:
+    # The Claude Desktop bundle script must keep working against the live binary.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Build bundle (stand-in Windows binary)
+        run: |
+          scripts/build-mcpb.sh 0.0.0-ci target/release/scix target/release/scix scix-ci.mcpb
+          unzip -l scix-ci.mcpb
+          unzip -p scix-ci.mcpb manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["server"]["type"]=="binary"; assert len(m["tools"])>=12; print("ok", m["version"])'
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install maturin
+      - run: maturin build --release --out dist
+      - run: pip install dist/*.whl
+      - name: Console script and module import
+        run: |
+          scix --version
+          scix-client --version
+          python -c "import scix_client; print(scix_client.SciXClient)"
+          out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | env -u SCIX_API_TOKEN -u ADS_API_TOKEN scix serve)
+          echo "$out" | grep -q '"scix_search"'

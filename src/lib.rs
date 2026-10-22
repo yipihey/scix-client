@@ -4,7 +4,8 @@
 //!
 //! Provides:
 //! - **Library**: Async API client for search, export, metrics, libraries, and more
-//! - **CLI**: `scix` binary for terminal use (includes `scix serve` for MCP)
+//! - **MCP server**: `scix serve` speaks MCP over stdio for Claude, Cursor, Zed, etc.
+//! - **CLI**: `scix` binary for terminal use
 //!
 //! ## Quick Start
 //!
@@ -60,19 +61,21 @@ pub mod types;
 pub mod mcp;
 
 #[cfg(feature = "cli")]
+pub mod cli;
+
+#[cfg(feature = "cli")]
 pub mod setup;
 
 #[cfg(feature = "cli")]
 pub mod doctor;
 
-#[cfg(feature = "cli")]
-pub mod chat;
-
 #[cfg(feature = "python")]
 pub mod python;
 
 // Re-export key types at the crate root.
-pub use client::SciXClient;
+pub use client::{
+    resolve_token, resolve_token_with_source, save_token, token_file_path, SciXClient, TokenSource,
+};
 pub use error::SciXError;
 pub use query::QueryBuilder;
 pub use types::*;

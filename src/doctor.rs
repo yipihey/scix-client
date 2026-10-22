@@ -1,6 +1,6 @@
 //! `scix doctor` — diagnostic checks for installation and connectivity.
 //!
-//! Prints the version, the resolved binary path, environment-token status,
+//! Prints the version, the resolved binary path, where the API token came from,
 //! a live API health check, and which AI editors were detected.
 
 use crate::error::{Result, SciXError};
@@ -43,25 +43,22 @@ fn check_binary() -> CheckStatus {
 }
 
 fn check_token() -> (CheckStatus, Option<String>) {
-    if let Ok(t) = std::env::var("SCIX_API_TOKEN") {
-        if !t.is_empty() {
-            return (
-                CheckStatus::Ok("SCIX_API_TOKEN is set".to_string()),
-                Some(t),
-            );
-        }
-    }
-    if let Ok(t) = std::env::var("ADS_API_TOKEN") {
-        if !t.is_empty() {
-            return (CheckStatus::Ok("ADS_API_TOKEN is set".to_string()), Some(t));
-        }
-    }
-    (
-        CheckStatus::Fail(
-            "no SCIX_API_TOKEN or ADS_API_TOKEN in environment — run `scix setup`".to_string(),
+    match crate::client::resolve_token_with_source() {
+        Some((token, source)) => (
+            CheckStatus::Ok(format!("API token found in {}", source)),
+            Some(token),
         ),
-        None,
-    )
+        None => {
+            let hint = match crate::client::token_file_path() {
+                Some(p) => format!(
+                    "no API token: SCIX_API_TOKEN unset and {} missing — run `scix login`",
+                    p.display()
+                ),
+                None => "no API token: SCIX_API_TOKEN unset — run `scix login`".to_string(),
+            };
+            (CheckStatus::Fail(hint), None)
+        }
+    }
 }
 
 async fn check_api(token: &str) -> CheckStatus {
@@ -151,7 +148,7 @@ pub async fn run_doctor() -> Result<()> {
     if any_fail {
         println!("Some checks failed. Next steps:");
         if !have_token {
-            println!("  • Run `scix setup` to acquire and store an API token.");
+            println!("  • Run `scix login` to save an API token, or `scix setup` to also configure your editors.");
         }
         std::process::exit(1);
     } else {

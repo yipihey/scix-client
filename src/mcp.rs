@@ -12,8 +12,28 @@ use std::io::{self, BufRead, Write};
 /// Rich fields for single-paper detail view.
 const RICH_FIELDS: &str = "bibcode,title,author,year,pub,abstract,doi,identifier,doctype,esources,citation_count,property,read_count,volume,page,keyword,aff";
 
+/// Protocol revisions this server can speak. The newest is offered when the
+/// client asks for something unknown.
+const SUPPORTED_PROTOCOL_VERSIONS: [&str; 3] = ["2024-11-05", "2025-03-26", "2025-06-18"];
+
+/// Guidance handed to the model at `initialize`; hosts prepend it to the
+/// system prompt, which is where query-syntax hints belong.
+const SERVER_INSTRUCTIONS: &str = "scix gives you the SciX / NASA ADS literature database (astronomy, astrophysics, physics). \
+Prefer scix_search over web search for anything about papers, authors, citations or references. \
+Write field queries, not free text: author:\"Abel, T\" year:2002 bibstem:Sci. \
+Use scix_get_paper for one paper's abstract and full metadata, scix_resolve_reference only for complete citations with journal/volume/page, \
+and scix_export for BibTeX or other formats. \
+Read the scix://syntax resource for the full query syntax. \
+Write operations (scix_library, scix_library_documents) change the user's ADS libraries; confirm before deleting or emptying.";
+
 /// Run the MCP server over stdin/stdout.
-pub async fn run_server(client: SciXClient) -> crate::error::Result<()> {
+///
+/// Pass `None` when no API token was found at startup: the server still
+/// answers `initialize` and `tools/list` so the host shows it as healthy, and
+/// every tool call returns an `isError` result explaining how to get and save
+/// a token. The token is re-resolved on each call, so saving one with
+/// `scix login` takes effect without restarting the host.
+pub async fn run_server(client: Option<SciXClient>) -> crate::error::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
 
@@ -41,9 +61,26 @@ pub async fn run_server(client: SciXClient) -> crate::error::Result<()> {
         let method = request["method"].as_str().unwrap_or("");
 
         let response = match method {
-            "initialize" => handle_initialize(&id),
+            "initialize" => handle_initialize(&id, &request["params"]),
+            "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
             "tools/list" => handle_tools_list(&id),
-            "tools/call" => handle_tool_call(&client, &id, &request["params"]).await,
+            "tools/call" => {
+                let resolved = match &client {
+                    Some(c) => Some(c.clone()),
+                    None => SciXClient::from_env().ok(),
+                };
+                match resolved {
+                    Some(c) => handle_tool_call(&c, &id, &request["params"]).await,
+                    None => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": format!("Error: {}", SciXError::AuthRequired) }],
+                            "isError": true
+                        }
+                    }),
+                }
+            }
             "resources/list" => handle_resources_list(&id),
             "resources/read" => handle_resource_read(&id, &request["params"]),
             "notifications/initialized" | "notifications/cancelled" => continue,
@@ -65,20 +102,28 @@ pub async fn run_server(client: SciXClient) -> crate::error::Result<()> {
     Ok(())
 }
 
-fn handle_initialize(id: &Value) -> Value {
+fn handle_initialize(id: &Value, params: &Value) -> Value {
+    let requested = params["protocolVersion"].as_str().unwrap_or("");
+    let version = if SUPPORTED_PROTOCOL_VERSIONS.contains(&requested) {
+        requested
+    } else {
+        SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.len() - 1]
+    };
     json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": version,
             "capabilities": {
                 "tools": {},
                 "resources": {}
             },
             "serverInfo": {
                 "name": "scix-mcp",
+                "title": "SciX / NASA ADS",
                 "version": env!("CARGO_PKG_VERSION")
-            }
+            },
+            "instructions": SERVER_INSTRUCTIONS
         }
     })
 }
@@ -170,9 +215,9 @@ async fn handle_tool_call(client: &SciXClient, id: &Value, params: &Value) -> Va
 
 /// Dispatch a tool call by name and return its text result.
 ///
-/// This is the same dispatch table used by the MCP server, exposed so direct
-/// LLM clients (e.g. `scix chat`) can drive the same set of tools without
-/// going through the MCP protocol layer.
+/// This is the same dispatch table used by the MCP server, exposed so other
+/// front ends can drive the same set of tools without going through the MCP
+/// protocol layer.
 pub async fn dispatch_tool_call(
     client: &SciXClient,
     name: &str,

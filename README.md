@@ -4,68 +4,76 @@
 
 It also works standalone: as a CLI tool, a Python library, or a Rust crate.
 
+<!-- mcp-name: io.github.yipihey/scix -->
+
 **Research workflows:** literature reviews, bibliography management, citation analysis, reference export, object resolution, paper details, library collaboration, annotation/notes
 
 | Mode | What it does | Guide |
 |------|-------------|-------|
-| **MCP server** (`scix serve`) | Expose SciX tools to Claude, Cursor, Zed, Gemini CLI, Codex CLI, Windsurf | [docs/mcp-server.md](docs/mcp-server.md) |
-| **Chat REPL** (`scix chat`) | Built-in tool-use loop against any model (Anthropic, OpenAI, Gemini, Ollama) — no MCP host needed | below |
+| **MCP server** (`scix serve`) | Expose SciX tools to Claude, Cursor, VS Code, Zed, Gemini CLI, Codex CLI, Windsurf | [docs/mcp-server.md](docs/mcp-server.md) |
 | **CLI** (`scix`) | Command-line tool for your terminal | [docs/cli.md](docs/cli.md) |
 | **Python library** (`scix_client`) | Native Python module — `pip install scix-client` | [docs/python.md](docs/python.md) |
 | **Rust library** (`scix_client`) | Async Rust crate — `cargo add scix-client` | [docs/rust.md](docs/rust.md) |
 
 One binary (`scix`) does everything. Python bindings are auto-generated from the Rust types — zero extra maintenance.
 
-## Install
-
-```bash
-# One-line installer (no Rust toolchain required)
-curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
-
-# From PyPI (also gives you the Python module)
-pip install scix-client          # or: uvx scix-client, pipx install scix-client
-
-# From crates.io (compiles locally)
-cargo install scix-client --features cli
-# or, prebuilt binary via cargo-binstall:
-cargo binstall scix-client
-```
-
-Verify your setup at any time with:
-
-```bash
-scix doctor
-```
-
-## Prerequisites
-
-You need a SciX / ADS API token. Get one (free) at:
-<https://ui.adsabs.harvard.edu/user/settings/token>
-
-```bash
-export SCIX_API_TOKEN="your-token-here"
-# or, for backwards compatibility:
-export ADS_API_TOKEN="your-token-here"
-```
+You need a free SciX / ADS API token from <https://ui.adsabs.harvard.edu/user/settings/token>. Every path below asks for it once and stores it for you.
 
 ---
 
-## Quick Start: MCP
+## Claude Desktop: one-click install
 
-Give your AI assistant access to the entire SciX database. (Install with any method from [Install](#install) above.)
+1. Download **`scix-vX.Y.Z.mcpb`** from the [latest release](https://github.com/yipihey/scix-client/releases/latest) (macOS universal + Windows in one file).
+2. Double-click it (or drag it onto Claude Desktop → Settings → Extensions).
+3. Paste your API token when asked. Done — no terminal, no PATH, no JSON.
 
-### Automatic setup (recommended)
+---
+
+## Everything else: install `scix`, then `scix setup`
+
+Pick any one installer:
+
+```bash
+# One-line installer (prebuilt binary, no Rust toolchain)
+curl -sSf https://raw.githubusercontent.com/yipihey/scix-client/main/install.sh | sh
+
+# Python (also gives you the scix_client module)
+pip install scix-client        # or: pipx install scix-client / uv tool install scix-client
+
+# Rust
+cargo install scix-client      # compiles locally
+cargo binstall scix-client     # prebuilt binary via cargo-binstall
+```
+
+Then:
 
 ```bash
 scix setup
 ```
 
-This detects your installed editors (Claude Code, Claude Desktop, Cursor, Zed, Gemini CLI, Codex CLI, Windsurf), prompts for your API token (offering to open the token page in your browser), validates it, and writes the correct config for each one. Run it once and you're done.
+The wizard asks for your token (offering to open the token page), validates it, saves it to `~/.config/scix/token`, and registers the server with every editor it finds: Claude Code, Claude Desktop, Cursor, Zed, Gemini CLI, Codex CLI, Windsurf. Run it again any time; it is idempotent.
 
-Options:
 - `scix setup claude-code` — configure only one editor
-- `scix setup --yes` — non-interactive (uses env token, configures all detected editors)
-- `scix setup --skip-validation` — skip token validation
+- `scix setup --yes` — non-interactive (uses `SCIX_API_TOKEN`, configures all detected editors)
+- `scix login` — just save the token, touch no editor configs
+- `scix doctor` — check binary, PATH, token, API connectivity, and detected editors
+
+### Install badges
+
+After `scix login`, any MCP host can run plain `scix serve` with no environment setup:
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=scix&config=eyJjb21tYW5kIjoic2NpeCIsImFyZ3MiOlsic2VydmUiXX0=)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_scix-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=scix&config=%7B%22command%22%3A%22scix%22%2C%22args%22%3A%5B%22serve%22%5D%7D)
+
+GUI editors do not see your shell `PATH`. If a badge-installed server cannot find `scix`, run `scix setup cursor` (or whichever editor) once; it writes the absolute path.
+
+### No install at all
+
+With [uv](https://docs.astral.sh/uv/) present, this works as the command in any MCP config:
+
+```json
+{ "command": "uvx", "args": ["scix-client", "serve"], "env": { "SCIX_API_TOKEN": "your-token" } }
+```
 
 ### Manual setup
 
@@ -73,20 +81,22 @@ Options:
 <summary>Claude Code</summary>
 
 ```bash
-claude mcp add scix -- /path/to/scix serve
+claude mcp add --scope user scix -- scix serve
 ```
+
+(`--scope user` makes it available in every project; the default scope is the current directory only.)
 </details>
 
 <details>
-<summary>Claude Desktop</summary>
+<summary>Claude Desktop (manual, instead of the .mcpb)</summary>
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows), using the full path from `which scix`:
 
 ```json
 {
   "mcpServers": {
     "scix": {
-      "command": "/path/to/scix",
+      "command": "/full/path/to/scix",
       "args": ["serve"],
       "env": { "SCIX_API_TOKEN": "your-token-here" }
     }
@@ -95,26 +105,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 </details>
 
-See [docs/mcp-server.md](docs/mcp-server.md) for Cursor, Zed, full tool reference, and example workflows.
-
----
-
-## Quick Start: Chat REPL
-
-Drive scix from any tool-use-capable LLM, with no MCP host required. Set one provider's API key and go.
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."     # or OPENAI_API_KEY, GEMINI_API_KEY, OLLAMA_HOST
-export SCIX_API_TOKEN="your-ads-token"
-scix chat                                  # auto-detects provider
-
-# Or pick explicitly:
-scix chat --provider openai --model gpt-5
-scix chat --provider gemini --model gemini-2.5-pro
-scix chat --provider ollama --model llama3.1:70b
-```
-
-Inside the REPL, just ask questions. The model uses the same SciX tools the MCP server exposes (search, export, metrics, libraries, citation/reference networks, object name resolution, paper details).
+See [docs/mcp-server.md](docs/mcp-server.md) for Cursor, VS Code, Zed, Gemini CLI, Codex CLI, Windsurf, the full tool reference, and example workflows.
 
 ---
 
@@ -140,13 +131,13 @@ pip install scix-client
 ```python
 import scix_client
 
-client = scix_client.SciXClient()
+client = scix_client.SciXClient()   # token from SCIX_API_TOKEN or ~/.config/scix/token
 results = client.search('author:"Einstein" year:1905', rows=5)
 for paper in results.papers:
     print(f"{paper.title} ({paper.year}) — {paper.citation_count} citations")
 ```
 
-See [docs/python.md](docs/python.md) for the full API reference including v0.2.0 library management methods.
+The wheel also installs the `scix` command, so `pip install scix-client && scix setup` is a complete MCP setup. See [docs/python.md](docs/python.md) for the full API reference.
 
 ---
 
@@ -154,7 +145,7 @@ See [docs/python.md](docs/python.md) for the full API reference including v0.2.0
 
 ```toml
 [dependencies]
-scix-client = "0.3"
+scix-client = { version = "0.4", default-features = false }   # library only, no CLI deps
 ```
 
 ```rust
@@ -197,6 +188,14 @@ See [docs/rust.md](docs/rust.md) for the full API, error handling, and architect
 See [docs/query-syntax.md](docs/query-syntax.md) for the full reference including all 17 export formats.
 
 ---
+
+## Token lookup order
+
+`scix` (and the Python/Rust clients' `from_env`) look for the API token in this order:
+
+1. `SCIX_API_TOKEN` environment variable
+2. `ADS_API_TOKEN` environment variable
+3. `~/.config/scix/token` (`%APPDATA%\scix\token` on Windows; override the directory with `SCIX_CONFIG_DIR`), written by `scix login` / `scix setup`
 
 ## Rate Limiting
 

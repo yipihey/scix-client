@@ -30,6 +30,8 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: aarch64-apple-darwin
@@ -47,7 +49,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --features cli --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
@@ -70,18 +72,51 @@ jobs:
           name: binary-${{ matrix.target }}
           path: scix-v*
 
-  # --- Job 3: Create GitHub Release with binaries ---
-  github-release:
+  # --- Job 3: Claude Desktop extension bundle (.mcpb) ---
+  mcpb:
     needs: binaries
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: artifacts
+      - name: Assemble universal macOS binary and Windows exe
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p x86 arm win
+          tar xzf artifacts/scix-v${VERSION}-x86_64-apple-darwin.tar.gz -C x86
+          tar xzf artifacts/scix-v${VERSION}-aarch64-apple-darwin.tar.gz -C arm
+          unzip -q artifacts/scix-v${VERSION}-x86_64-pc-windows-msvc.zip -d win
+          lipo -create -output scix-universal x86/scix arm/scix
+          lipo -info scix-universal
+          scripts/build-mcpb.sh "$VERSION" scix-universal win/scix.exe scix-v${VERSION}.mcpb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcpb
+          path: scix-v*.mcpb
+
+  # --- Job 4: Create GitHub Release with binaries and bundle ---
+  github-release:
+    needs: [binaries, mcpb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download binaries
         uses: actions/download-artifact@v4
         with:
           pattern: binary-*
           merge-multiple: true
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb
+
+      - name: Checksums
+        run: sha256sum scix-v* > SHA256SUMS
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -90,14 +125,18 @@ jobs:
           files: |
             scix-v*.tar.gz
             scix-v*.zip
+            scix-v*.mcpb
+            SHA256SUMS
 
-  # --- Job 4: Build and publish Python wheels to PyPI ---
+  # --- Job 5: Build and publish Python wheels to PyPI ---
   python-wheels:
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64
+          - os: ubuntu-24.04-arm
+            target: aarch64
           - os: macos-latest
             target: x86_64
           - os: macos-latest
@@ -112,6 +151,7 @@ jobs:
         with:
           python-version: "3.12"
 
+      # abi3 (see Cargo.toml): one wheel per platform covers CPython >= 3.8.
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -125,7 +165,7 @@ jobs:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: dist/*.whl
 
-  # --- Job 5: Source distribution ---
+  # --- Job 6: Source distribution ---
   sdist:
     runs-on: ubuntu-latest
     environment: release
@@ -142,7 +182,7 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  # --- Job 6: Publish all wheels + sdist to PyPI ---
+  # --- Job 7: Publish all wheels + sdist to PyPI ---
   pypi-publish:
     needs: [python-wheels, sdist]
     runs-on: ubuntu-latest
@@ -163,3 +203,32 @@ jobs:
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # --- Job 8: List the server in the official MCP registry ---
+  # Authenticates with GitHub OIDC (namespace io.github.yipihey). Both package
+  # entries must already be public: the .mcpb on the GitHub release and the
+  # wheel on PyPI (whose README carries the mcp-name marker).
+  mcp-registry:
+    needs: [github-release, pypi-publish]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcpb
+      - name: Render server.json
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          SHA=$(sha256sum scix-v${VERSION}.mcpb | cut -d' ' -f1)
+          sed -e "s/@VERSION@/${VERSION}/g" -e "s/@MCPB_SHA256@/${SHA}/g" server.json.template > server.json
+          cat server.json
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz \
+            | tar xz mcp-publisher
+          ./mcp-publisher --version
+      - name: Publish
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

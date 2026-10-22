@@ -13,7 +13,11 @@ pip install maturin
 maturin develop
 ```
 
-Requires Python 3.8+.
+Requires Python 3.8+. Wheels are `abi3`, so one wheel per platform serves every Python version.
+
+The package also installs the `scix` command (and a `scix-client` alias for `uvx scix-client …`): the full CLI, `scix setup`, and the MCP server `scix serve`. See [mcp-server.md](mcp-server.md).
+
+The client reads the token from `SCIX_API_TOKEN`, `ADS_API_TOKEN`, or the token file written by `scix login`.
 
 ## Basic Search
 

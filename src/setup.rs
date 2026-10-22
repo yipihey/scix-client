@@ -67,33 +67,23 @@ fn mask_token(token: &str) -> String {
     format!("{}...{}", &token[..4], &token[token.len() - 4..])
 }
 
-/// Resolve the API token from env vars or interactive prompt.
+/// Resolve the API token from env vars, the token file, or an interactive prompt.
 fn resolve_token(yes: bool) -> Result<String> {
-    // Check env vars first.
-    if let Ok(token) = std::env::var("SCIX_API_TOKEN") {
-        if !token.is_empty() {
-            println!("  Found SCIX_API_TOKEN in environment.");
-            println!("  Token: {}", mask_token(&token));
-            return Ok(token);
-        }
-    }
-    if let Ok(token) = std::env::var("ADS_API_TOKEN") {
-        if !token.is_empty() {
-            println!("  Found ADS_API_TOKEN in environment.");
-            println!("  Token: {}", mask_token(&token));
-            return Ok(token);
-        }
+    if let Some((token, source)) = crate::client::resolve_token_with_source() {
+        println!("  Found token in {}.", source);
+        println!("  Token: {}", mask_token(&token));
+        return Ok(token);
     }
 
     if yes {
         return Err(SciXError::Config(
-            "No SCIX_API_TOKEN or ADS_API_TOKEN found in environment (required with --yes)"
+            "No API token found (SCIX_API_TOKEN / ADS_API_TOKEN unset, no token file); required with --yes"
                 .to_string(),
         ));
     }
 
     // Interactive prompt.
-    println!("  No API token found in environment.");
+    println!("  No API token found.");
     println!("  Get a free token at: {}", TOKEN_URL);
 
     let open_browser = dialoguer::Confirm::new()
@@ -146,6 +136,40 @@ async fn validate_token(token: &str) -> Result<()> {
     }
 }
 
+/// Persist the token so `scix serve` finds it without any environment setup.
+fn save_token(token: &str) -> Result<PathBuf> {
+    crate::client::save_token(token)
+        .map_err(|e| SciXError::Config(format!("Could not save token: {}", e)))
+}
+
+/// `scix login`: acquire, validate, and save the API token. Does not touch
+/// any editor configuration.
+pub async fn run_login(token: Option<String>, skip_validation: bool) -> Result<()> {
+    println!();
+    println!("scix login \u{2014} save your SciX/ADS API token");
+    println!("=========================================");
+    println!();
+
+    let token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => {
+            println!("Checking API token...");
+            resolve_token(false)?
+        }
+    };
+
+    if !skip_validation {
+        validate_token(&token).await?;
+    }
+
+    let path = save_token(&token)?;
+    println!("  Saved to {}", path.display());
+    println!();
+    println!("Done. Any MCP host can now run `scix serve` with no further configuration.");
+    println!("Run `scix setup` to register scix with your editors, or `scix doctor` to check.");
+    Ok(())
+}
+
 /// Get the absolute path to the current scix binary.
 fn locate_binary() -> Result<PathBuf> {
     std::env::current_exe().map_err(|e| SciXError::Config(format!("Cannot locate binary: {}", e)))
@@ -153,7 +177,8 @@ fn locate_binary() -> Result<PathBuf> {
 
 /// Check if `claude` CLI is available on PATH.
 fn claude_cli_available() -> bool {
-    std::process::Command::new("which")
+    let finder = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(finder)
         .arg("claude")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -182,6 +207,8 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
 
     // Claude Code: prefer CLI, fallback to config file.
     if filter.is_none() || filter == Some(EditorTarget::ClaudeCode) {
+        // Without the CLI, user-scope servers live in ~/.claude.json
+        // (not ~/.claude/settings.json, which does not define servers).
         let has_cli = claude_cli_available();
         let claude_dir = home.join(".claude");
         if has_cli || claude_dir.exists() {
@@ -190,7 +217,7 @@ fn detect_editors(filter: Option<EditorTarget>) -> Vec<DetectedEditor> {
                 config_path: if has_cli {
                     None
                 } else {
-                    Some(claude_dir.join("settings.json"))
+                    Some(home.join(".claude.json"))
                 },
                 use_cli: has_cli,
             });
@@ -294,17 +321,11 @@ fn standard_mcp_entry(binary: &str, token: &str) -> serde_json::Value {
     })
 }
 
-/// Build the MCP server entry for Zed (different schema).
+/// Build the MCP server entry for Zed: same keys as everyone else, under
+/// `context_servers`. (Zed dropped the nested `command: { path }` form and
+/// the `source` tag; its settings migrator rewrites old entries.)
 fn zed_mcp_entry(binary: &str, token: &str) -> serde_json::Value {
-    serde_json::json!({
-        "command": {
-            "path": binary,
-            "args": ["serve"],
-            "env": {
-                "SCIX_API_TOKEN": token
-            }
-        }
-    })
+    standard_mcp_entry(binary, token)
 }
 
 /// Update a JSON config file, inserting the scix entry under the given section key.
@@ -402,10 +423,14 @@ fn configure_claude_code_cli(binary: &str, token: &str) -> ConfigResult {
             .status();
     }
 
+    // User scope: the default (local) scope would register scix only for
+    // whichever directory the wizard happened to run in.
     let status = std::process::Command::new("claude")
         .args([
             "mcp",
             "add",
+            "--scope",
+            "user",
             "scix",
             "-e",
             &format!("SCIX_API_TOKEN={}", token),
@@ -558,6 +583,10 @@ pub async fn run_setup(
     } else {
         println!("  Skipping validation (--skip-validation).");
     }
+    match save_token(&token) {
+        Ok(path) => println!("  Saved to {}", path.display()),
+        Err(e) => println!("  WARNING: {}", e),
+    }
     println!();
 
     // 3. Locate binary.
@@ -604,6 +633,7 @@ pub async fn run_setup(
         } else {
             println!("No supported editors detected.");
         }
+        println!("Your token is saved, so any MCP host can run `scix serve` as is.");
         println!("See https://github.com/yipihey/scix-client for manual setup instructions.");
         return Ok(());
     }

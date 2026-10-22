@@ -757,6 +757,38 @@ impl PyQueryBuilder {
 }
 
 // ---------------------------------------------------------------------------
+// Console script entry point
+// ---------------------------------------------------------------------------
+
+/// Entry point for the `scix` / `scix-client` console scripts installed by
+/// pip. Runs the same CLI (including `scix serve`) as the Rust binary.
+#[cfg(feature = "cli")]
+#[pyfunction]
+fn main(py: Python<'_>) -> PyResult<()> {
+    let argv: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
+    let exit_code = py.allow_threads(move || {
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("Error: cannot start async runtime: {}", e);
+                return 1;
+            }
+        };
+        match runtime.block_on(crate::cli::run_from(argv)) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                1
+            }
+        }
+    });
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
 
@@ -792,6 +824,9 @@ pub fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ResolvedReference>()?;
     m.add_class::<Sort>()?;
     m.add_class::<SortDirection>()?;
+
+    #[cfg(feature = "cli")]
+    m.add_function(wrap_pyfunction!(main, m)?)?;
 
     Ok(())
 }
